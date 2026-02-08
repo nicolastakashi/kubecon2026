@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/nicolastakashi/kubecon2026/internal/models"
 )
 
 const (
@@ -15,19 +17,7 @@ const (
 	timeout = 30 * time.Second
 )
 
-type Parcel struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Outcome   string `json:"outcome,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}
-
-type ProcessRequest struct {
-	Outcome string `json:"outcome"`
-	Reason  string `json:"reason,omitempty"`
-}
-
+// ParcelResponse for API responses that include additional fields like 'message'
 type ParcelResponse struct {
 	ID      string `json:"id"`
 	Status  string `json:"status"`
@@ -88,7 +78,7 @@ func ingestParcel(t *testing.T, client *http.Client) string {
 func processParcel(t *testing.T, client *http.Client, parcelID, outcome, reason string) *http.Response {
 	t.Helper()
 
-	reqBody := ProcessRequest{
+	reqBody := models.ProcessRequest{
 		Outcome: outcome,
 		Reason:  reason,
 	}
@@ -184,7 +174,7 @@ func TestHappyPath_ParcelLifecycle(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var parcel Parcel
+	var parcel models.Parcel
 	if err := json.NewDecoder(resp.Body).Decode(&parcel); err != nil {
 		t.Fatalf("Failed to decode parcel: %v", err)
 	}
@@ -271,7 +261,7 @@ func TestHappyPath_BacklogTracking(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var parcels []Parcel
+	var parcels []models.Parcel
 	if err := json.NewDecoder(resp.Body).Decode(&parcels); err != nil {
 		t.Fatalf("Failed to decode parcels list: %v", err)
 	}
@@ -298,7 +288,7 @@ func TestHappyPath_BacklogTracking(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var updatedParcels []Parcel
+	var updatedParcels []models.Parcel
 	if err := json.NewDecoder(resp.Body).Decode(&updatedParcels); err != nil {
 		t.Fatalf("Failed to decode parcels list: %v", err)
 	}
@@ -489,7 +479,7 @@ func TestEndpoints_ListParcels(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var parcels []Parcel
+	var parcels []models.Parcel
 	if err := json.NewDecoder(resp.Body).Decode(&parcels); err != nil {
 		t.Fatalf("Failed to decode parcels list: %v", err)
 	}
@@ -514,7 +504,7 @@ func TestEndpoints_GetParcel(t *testing.T) {
 		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var parcel Parcel
+	var parcel models.Parcel
 	if err := json.NewDecoder(resp.Body).Decode(&parcel); err != nil {
 		t.Fatalf("Failed to decode parcel: %v", err)
 	}
