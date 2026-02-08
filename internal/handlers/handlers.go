@@ -156,10 +156,11 @@ func (h *Handler) GetParcel(w http.ResponseWriter, r *http.Request) {
 
 	var parcel models.Parcel
 	var createdAt, updatedAt string
+	var outcome sql.NullString
 
 	err := h.db.QueryRowContext(r.Context(),
 		"SELECT id, status, outcome, created_at, updated_at FROM parcels WHERE id = ?",
-		parcelID).Scan(&parcel.ID, &parcel.Status, &parcel.Outcome, &createdAt, &updatedAt)
+		parcelID).Scan(&parcel.ID, &parcel.Status, &outcome, &createdAt, &updatedAt)
 
 	if err == sql.ErrNoRows {
 		http.Error(w, "Parcel not found", http.StatusNotFound)
@@ -170,6 +171,9 @@ func (h *Handler) GetParcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if outcome.Valid {
+		parcel.Outcome = outcome.String
+	}
 	parcel.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 	parcel.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 
@@ -190,8 +194,12 @@ func (h *Handler) ListParcels(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var parcel models.Parcel
 		var createdAt, updatedAt string
-		if err := rows.Scan(&parcel.ID, &parcel.Status, &parcel.Outcome, &createdAt, &updatedAt); err != nil {
+		var outcome sql.NullString
+		if err := rows.Scan(&parcel.ID, &parcel.Status, &outcome, &createdAt, &updatedAt); err != nil {
 			continue
+		}
+		if outcome.Valid {
+			parcel.Outcome = outcome.String
 		}
 		parcel.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 		parcel.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
