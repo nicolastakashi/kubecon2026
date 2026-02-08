@@ -1,9 +1,12 @@
 .PHONY: all build run test clean deps fmt vet lint docker help
+.PHONY: e2e e2e-build e2e-cluster e2e-load e2e-deploy e2e-verify e2e-cleanup
 
 APP_NAME := packetsorter
 BUILD_DIR := bin
 MAIN_FILE := cmd/packetsorter/main.go
 DB_FILE := parcels.db
+CLUSTER_NAME := packetsorter-e2e
+E2E_MANIFESTS_DIR := test/e2e/manifests
 
 # Default target
 all: build
@@ -115,4 +118,65 @@ help:
 	@echo "  make security       - Check for security vulnerabilities"
 	@echo "  make install-tools  - Install development tools"
 	@echo "  make metrics        - Show current metrics"
+	@echo "  make e2e            - Run end-to-end tests on kind cluster"
 	@echo "  make help           - Show this help message"
+
+## Run end-to-end tests on kind cluster
+## 
+## This target orchestrates the full e2e flow:
+## 1. Build Docker image
+## 2. Create kind cluster (delete if exists)
+## 3. Load image into kind
+## 4. Deploy manifests
+## 5. Verify services are ready
+## 6. Cleanup cluster
+e2e: e2e-build e2e-cluster e2e-load e2e-deploy e2e-verify
+	@echo "========================================"
+	@echo "  E2E tests completed successfully!"
+	@echo "========================================"
+	@make e2e-cleanup
+
+## Build Docker image for e2e tests
+e2e-build:
+	@echo "Building Docker image for e2e tests..."
+	$(MAKE) docker
+
+## Create kind cluster (delete if exists)
+e2e-cluster:
+	@echo "Checking kind installation..."
+	@if ! command -v kind >/dev/null 2>&1; then \
+		echo "kind not installed. Run: brew install kind"; \
+		echo "Or see: https://kind.sigs.k8s.io/docs/user/quick-start/"; \
+		exit 1; \
+	fi
+	@echo "Creating kind cluster '$(CLUSTER_NAME)'..."
+	@if kind get clusters | grep -q "$(CLUSTER_NAME)"; then \
+		echo "Cluster exists, deleting..."; \
+		kind delete cluster --name $(CLUSTER_NAME); \
+	fi
+	kind create cluster --name $(CLUSTER_NAME)
+
+## Load Docker image into kind cluster
+e2e-load:
+	@echo "Loading Docker image into kind cluster..."
+	kind load docker-image $(APP_NAME):latest --name $(CLUSTER_NAME)
+
+## Deploy Kubernetes manifests
+e2e-deploy:
+	@echo "Deploying Kubernetes manifests..."
+	kubectl apply -f $(E2E_MANIFESTS_DIR)/
+
+## Wait for services to be ready
+e2e-verify:
+	@echo "Waiting for services to be ready..."
+	kubectl wait --for=condition=available deployment/$(APP_NAME) -n packetsorter --timeout=60s
+	@echo ""
+	@echo "Services are running!"
+	@kubectl get pods -n packetsorter
+	@kubectl get svc -n packetsorter
+
+## Cleanup kind cluster
+e2e-cleanup:
+	@echo "Cleaning up kind cluster..."
+	kind delete cluster --name $(CLUSTER_NAME) || true
+	@echo "Cleanup complete"
