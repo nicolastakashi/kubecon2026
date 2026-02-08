@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/nicolastakashi/kubecon2026/internal/models"
@@ -278,6 +277,13 @@ func TestEndpoints_HealthAndMetrics(t *testing.T) {
 	})
 
 	t.Run("metrics", func(t *testing.T) {
+		// First, trigger some metrics by processing parcels
+		// Create and process a rework parcel to ensure rework_reason_total exists
+		reworkParcelID := suite.IngestParcel(t)
+		resp := suite.ProcessParcel(t, reworkParcelID, "rework", "damaged")
+		CloseResponse(resp)
+
+		// Get metrics after triggering them
 		resp, err := suite.Client.Get(fmt.Sprintf("%s/metrics", suite.BaseURL))
 		require.NoError(t, err, "Failed to get metrics")
 		defer CloseResponse(resp)
@@ -343,9 +349,4 @@ func TestEndpoints_GetParcel(t *testing.T) {
 
 	assert.Equal(t, parcelID, parcel.ID)
 	assert.Equal(t, "ingested", parcel.Status)
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
 }
