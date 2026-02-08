@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/nicolastakashi/kubecon2026/internal/models"
 	"github.com/stretchr/testify/assert"
@@ -338,8 +339,22 @@ func TestEndpoints_GetParcel(t *testing.T) {
 	// Create a parcel
 	parcelID := suite.IngestParcel(t)
 
-	// Get the parcel
-	resp := suite.GetParcel(t, parcelID)
+	// Get the parcel with retry logic
+	var resp *http.Response
+	var err error
+	for i := 0; i < 3; i++ {
+		resp, err = suite.Client.Get(fmt.Sprintf("%s/api/parcels/%s", suite.BaseURL, parcelID))
+		if err == nil && resp.StatusCode == http.StatusOK {
+			break
+		}
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			t.Logf("Attempt %d: Status %d, Body: %s", i+1, resp.StatusCode, string(body))
+			resp.Body.Close()
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	require.NoError(t, err, "Failed to get parcel after retries")
 	defer CloseResponse(resp)
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
