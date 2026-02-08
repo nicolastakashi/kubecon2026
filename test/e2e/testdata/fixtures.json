@@ -1,0 +1,28 @@
+{
+  "valid_parcel": {
+    "outcome": "ok"
+  },
+  "rework_damaged": {
+    "outcome": "rework",
+    "reason": "damaged"
+  },
+  "rework_wrong_address": {
+    "outcome": "rework",
+    "reason": "wrong_address"
+  },
+  "rework_weight_issue": {
+    "outcome": "rework",
+    "reason": "weight_issue"
+  },
+  "rework_inspection": {
+    "outcome": "rework",
+    "reason": "inspection"
+  },
+  "drop_parcel": {
+    "outcome": "drop"
+  },
+  "invalid_outcome": {
+    "outcome": "invalid_outcome"
+  },
+  "non_existent_id": "PKG-NONEXISTENT-TEST-12345"
+}
