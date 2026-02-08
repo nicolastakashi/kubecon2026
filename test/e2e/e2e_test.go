@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/nicolastakashi/kubecon2026/internal/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -53,24 +56,16 @@ func ingestParcel(t *testing.T, client *http.Client) string {
 	t.Helper()
 
 	resp, err := client.Post(fmt.Sprintf("%s/api/parcels", baseURL), "application/json", nil)
-	if err != nil {
-		t.Fatalf("Failed to ingest parcel: %v", err)
-	}
+	require.NoError(t, err, "Failed to ingest parcel")
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("Expected status 201, got %d: %s", resp.StatusCode, string(body))
-	}
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "Expected status 201, got %d: %s", resp.StatusCode, string(body))
 
 	var result ParcelResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	if result.ID == "" {
-		t.Fatal("No parcel ID returned")
-	}
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err, "Failed to decode response: %v", err)
+	require.NotEmpty(t, result.ID, "No parcel ID returned")
 
 	return result.ID
 }
@@ -84,15 +79,11 @@ func processParcel(t *testing.T, client *http.Client, parcelID, outcome, reason 
 	}
 
 	body, err := json.Marshal(reqBody)
-	if err != nil {
-		t.Fatalf("Failed to marshal request: %v", err)
-	}
+	require.NoError(t, err, "Failed to marshal request: %v", err)
 
 	url := fmt.Sprintf("%s/api/parcels/%s/process", baseURL, parcelID)
 	resp, err := client.Post(url, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		t.Fatalf("Failed to process parcel: %v", err)
-	}
+	require.NoError(t, err, "Failed to process parcel")
 
 	return resp
 }
@@ -102,9 +93,7 @@ func shipParcel(t *testing.T, client *http.Client, parcelID string) *http.Respon
 
 	url := fmt.Sprintf("%s/api/parcels/%s/ship", baseURL, parcelID)
 	resp, err := client.Post(url, "application/json", nil)
-	if err != nil {
-		t.Fatalf("Failed to ship parcel: %v", err)
-	}
+	require.NoError(t, err, "Failed to ship parcel")
 
 	return resp
 }
@@ -114,9 +103,7 @@ func getParcel(t *testing.T, client *http.Client, parcelID string) *http.Respons
 
 	url := fmt.Sprintf("%s/api/parcels/%s", baseURL, parcelID)
 	resp, err := client.Get(url)
-	if err != nil {
-		t.Fatalf("Failed to get parcel: %v", err)
-	}
+	require.NoError(t, err, "Failed to get parcel")
 
 	return resp
 }
@@ -125,9 +112,7 @@ func listParcels(t *testing.T, client *http.Client) *http.Response {
 	t.Helper()
 
 	resp, err := client.Get(fmt.Sprintf("%s/api/parcels", baseURL))
-	if err != nil {
-		t.Fatalf("Failed to list parcels: %v", err)
-	}
+	require.NoError(t, err, "Failed to list parcels")
 
 	return resp
 }
@@ -152,39 +137,28 @@ func TestHappyPath_ParcelLifecycle(t *testing.T) {
 	resp := processParcel(t, client, parcelID, "ok", "")
 	closeResponse(resp)
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("Expected status 200, got %d: %s", resp.StatusCode, string(body))
-	}
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "Expected status 200, got %d: %s", resp.StatusCode, string(body))
 
 	// Step 3: Ship the parcel
 	resp = shipParcel(t, client, parcelID)
 	closeResponse(resp)
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("Expected status 200, got %d: %s", resp.StatusCode, string(body))
-	}
+	body, _ = io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "Expected status 200, got %d: %s", resp.StatusCode, string(body))
 
 	// Step 4: Verify final state
 	resp = getParcel(t, client, parcelID)
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var parcel models.Parcel
-	if err := json.NewDecoder(resp.Body).Decode(&parcel); err != nil {
-		t.Fatalf("Failed to decode parcel: %v", err)
-	}
+	err := json.NewDecoder(resp.Body).Decode(&parcel)
+	require.NoError(t, err)
 
-	if parcel.Status != "shipped" {
-		t.Fatalf("Expected status 'shipped', got '%s'", parcel.Status)
-	}
-	if parcel.Outcome != "ok" {
-		t.Fatalf("Expected outcome 'ok', got '%s'", parcel.Outcome)
-	}
+	assert.Equal(t, "shipped", parcel.Status)
+	assert.Equal(t, "ok", parcel.Outcome)
 }
 
 func TestHappyPath_ReworkReasons(t *testing.T) {
@@ -202,20 +176,14 @@ func TestHappyPath_ReworkReasons(t *testing.T) {
 			resp := processParcel(t, client, parcelID, "rework", reason)
 			defer closeResponse(resp)
 
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
-				t.Fatalf("Expected status 200 for reason '%s', got %d: %s", reason, resp.StatusCode, string(body))
-			}
+			body, _ := io.ReadAll(resp.Body)
+			require.Equal(t, http.StatusOK, resp.StatusCode, "Expected status 200 for reason '%s', got %d: %s", reason, resp.StatusCode, string(body))
 
 			// Verify state
 			var result ParcelResponse
-			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-				t.Fatalf("Failed to decode response: %v", err)
-			}
-
-			if result.Outcome != "rework" {
-				t.Fatalf("Expected outcome 'rework', got '%s'", result.Outcome)
-			}
+			err := json.Unmarshal(body, &result)
+			require.NoError(t, err)
+			assert.Equal(t, "rework", result.Outcome)
 		})
 	}
 }
@@ -235,10 +203,8 @@ func TestHappyPath_ProcessOutcomes(t *testing.T) {
 			resp := processParcel(t, client, parcelID, outcome, "")
 			defer closeResponse(resp)
 
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
-				t.Fatalf("Expected status 200 for outcome '%s', got %d: %s", outcome, resp.StatusCode, string(body))
-			}
+			body, _ := io.ReadAll(resp.Body)
+			require.Equal(t, http.StatusOK, resp.StatusCode, "Expected status 200 for outcome '%s', got %d: %s", outcome, resp.StatusCode, string(body))
 		})
 	}
 }
@@ -257,46 +223,32 @@ func TestHappyPath_BacklogTracking(t *testing.T) {
 	resp := listParcels(t, client)
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var parcels []models.Parcel
-	if err := json.NewDecoder(resp.Body).Decode(&parcels); err != nil {
-		t.Fatalf("Failed to decode parcels list: %v", err)
-	}
-
-	if len(parcels) < 3 {
-		t.Fatalf("Expected at least 3 parcels, got %d", len(parcels))
-	}
+	err := json.NewDecoder(resp.Body).Decode(&parcels)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(parcels), 3, "Expected at least 3 parcels, got %d", len(parcels))
 
 	// Now process 2 parcels with 'ok', don't ship yet
 	for i := 0; i < 2; i++ {
 		resp := processParcel(t, client, parcelIDs[i], "ok", "")
 		closeResponse(resp)
-
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("Failed to process parcel %d: status %d", i, resp.StatusCode)
-		}
+		require.Equal(t, http.StatusOK, resp.StatusCode, "Failed to process parcel %d: status %d", i, resp.StatusCode)
 	}
 
 	// List again to verify processed parcels exist
 	resp = listParcels(t, client)
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var updatedParcels []models.Parcel
-	if err := json.NewDecoder(resp.Body).Decode(&updatedParcels); err != nil {
-		t.Fatalf("Failed to decode parcels list: %v", err)
-	}
+	err = json.NewDecoder(resp.Body).Decode(&updatedParcels)
+	require.NoError(t, err)
 
 	// Verify we still have parcels
-	if len(updatedParcels) < 3 {
-		t.Fatalf("Expected at least 3 parcels after processing, got %d", len(updatedParcels))
-	}
+	assert.GreaterOrEqual(t, len(updatedParcels), 3, "Expected at least 3 parcels after processing, got %d", len(updatedParcels))
 }
 
 // Failure Mode Tests
@@ -311,14 +263,10 @@ func TestFailure_ProcessInvalidJSON(t *testing.T) {
 	// Send invalid JSON
 	url := fmt.Sprintf("%s/api/parcels/%s/process", baseURL, parcelID)
 	resp, err := client.Post(url, "application/json", bytes.NewBufferString("{invalid json"))
-	if err != nil {
-		t.Fatalf("Failed to make request: %v", err)
-	}
+	require.NoError(t, err, "Failed to make request")
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("Expected status 400 for invalid JSON, got %d", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "Expected status 400 for invalid JSON, got %d", resp.StatusCode)
 }
 
 func TestFailure_ProcessInvalidOutcome(t *testing.T) {
@@ -332,9 +280,7 @@ func TestFailure_ProcessInvalidOutcome(t *testing.T) {
 	resp := processParcel(t, client, parcelID, "invalid_outcome", "")
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("Expected status 400 for invalid outcome, got %d", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "Expected status 400 for invalid outcome, got %d", resp.StatusCode)
 }
 
 func TestFailure_ProcessNonExistentParcel(t *testing.T) {
@@ -346,9 +292,7 @@ func TestFailure_ProcessNonExistentParcel(t *testing.T) {
 	resp := processParcel(t, client, fakeID, "ok", "")
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("Expected status 404 for non-existent parcel, got %d", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "Expected status 404 for non-existent parcel, got %d", resp.StatusCode)
 }
 
 func TestFailure_ShipNonReadyParcel(t *testing.T) {
@@ -361,9 +305,7 @@ func TestFailure_ShipNonReadyParcel(t *testing.T) {
 		resp := shipParcel(t, client, fakeID)
 		defer closeResponse(resp)
 
-		if resp.StatusCode != http.StatusNotFound {
-			t.Fatalf("Expected status 404 for non-existent parcel, got %d", resp.StatusCode)
-		}
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode, "Expected status 404 for non-existent parcel, got %d", resp.StatusCode)
 	})
 
 	// Test 2: Ship a parcel that hasn't been processed
@@ -372,9 +314,7 @@ func TestFailure_ShipNonReadyParcel(t *testing.T) {
 		resp := shipParcel(t, client, parcelID)
 		defer closeResponse(resp)
 
-		if resp.StatusCode != http.StatusNotFound {
-			t.Fatalf("Expected status 404 for unprocessed parcel, got %d", resp.StatusCode)
-		}
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode, "Expected status 404 for unprocessed parcel, got %d", resp.StatusCode)
 	})
 
 	// Test 3: Ship a parcel with rework outcome
@@ -383,16 +323,12 @@ func TestFailure_ShipNonReadyParcel(t *testing.T) {
 		resp := processParcel(t, client, parcelID, "rework", "damaged")
 		closeResponse(resp)
 
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("Failed to process parcel: status %d", resp.StatusCode)
-		}
+		require.Equal(t, http.StatusOK, resp.StatusCode, "Failed to process parcel: status %d", resp.StatusCode)
 
 		resp = shipParcel(t, client, parcelID)
 		defer closeResponse(resp)
 
-		if resp.StatusCode != http.StatusNotFound {
-			t.Fatalf("Expected status 404 for rework parcel, got %d", resp.StatusCode)
-		}
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode, "Expected status 404 for rework parcel, got %d", resp.StatusCode)
 	})
 }
 
@@ -404,9 +340,7 @@ func TestFailure_GetNonExistentParcel(t *testing.T) {
 	resp := getParcel(t, client, fakeID)
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("Expected status 404 for non-existent parcel, got %d", resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "Expected status 404 for non-existent parcel, got %d", resp.StatusCode)
 }
 
 // Endpoint Coverage Tests
@@ -417,32 +351,22 @@ func TestEndpoints_HealthAndMetrics(t *testing.T) {
 
 	t.Run("health", func(t *testing.T) {
 		resp, err := client.Get(fmt.Sprintf("%s/health", baseURL))
-		if err != nil {
-			t.Fatalf("Failed to get health: %v", err)
-		}
+		require.NoError(t, err, "Failed to get health")
 		defer closeResponse(resp)
 
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
-		}
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
 
 	t.Run("metrics", func(t *testing.T) {
 		resp, err := client.Get(fmt.Sprintf("%s/metrics", baseURL))
-		if err != nil {
-			t.Fatalf("Failed to get metrics: %v", err)
-		}
+		require.NoError(t, err, "Failed to get metrics")
 		defer closeResponse(resp)
 
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("Expected status 200, got %d", resp.StatusCode)
-		}
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		// Verify metrics contain expected content
 		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatalf("Failed to read metrics body: %v", err)
-		}
+		require.NoError(t, err, "Failed to read metrics body")
 
 		expectedMetrics := []string{
 			"parcels_total",
@@ -455,9 +379,7 @@ func TestEndpoints_HealthAndMetrics(t *testing.T) {
 
 		metricsStr := string(body)
 		for _, metric := range expectedMetrics {
-			if !contains(metricsStr, metric) {
-				t.Fatalf("Metrics endpoint missing expected metric: %s", metric)
-			}
+			assert.Contains(t, metricsStr, metric, "Metrics endpoint missing expected metric: %s", metric)
 		}
 	})
 }
@@ -475,18 +397,13 @@ func TestEndpoints_ListParcels(t *testing.T) {
 	resp := listParcels(t, client)
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var parcels []models.Parcel
-	if err := json.NewDecoder(resp.Body).Decode(&parcels); err != nil {
-		t.Fatalf("Failed to decode parcels list: %v", err)
-	}
+	err := json.NewDecoder(resp.Body).Decode(&parcels)
+	require.NoError(t, err)
 
-	if len(parcels) < 3 {
-		t.Fatalf("Expected at least 3 parcels, got %d", len(parcels))
-	}
+	assert.GreaterOrEqual(t, len(parcels), 3, "Expected at least 3 parcels, got %d", len(parcels))
 }
 
 func TestEndpoints_GetParcel(t *testing.T) {
@@ -500,25 +417,17 @@ func TestEndpoints_GetParcel(t *testing.T) {
 	resp := getParcel(t, client, parcelID)
 	defer closeResponse(resp)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var parcel models.Parcel
-	if err := json.NewDecoder(resp.Body).Decode(&parcel); err != nil {
-		t.Fatalf("Failed to decode parcel: %v", err)
-	}
+	err := json.NewDecoder(resp.Body).Decode(&parcel)
+	require.NoError(t, err)
 
-	if parcel.ID != parcelID {
-		t.Fatalf("Expected parcel ID '%s', got '%s'", parcelID, parcel.ID)
-	}
-
-	if parcel.Status != "ingested" {
-		t.Fatalf("Expected status 'ingested', got '%s'", parcel.Status)
-	}
+	assert.Equal(t, parcelID, parcel.ID)
+	assert.Equal(t, "ingested", parcel.Status)
 }
 
 // Helper function
 func contains(s, substr string) bool {
-	return bytes.Contains([]byte(s), []byte(substr))
+	return strings.Contains(s, substr)
 }
