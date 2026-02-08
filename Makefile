@@ -1,5 +1,5 @@
 .PHONY: all build run test clean deps fmt vet lint docker help
-.PHONY: e2e e2e-build e2e-cluster e2e-load e2e-deploy e2e-verify e2e-cleanup
+.PHONY: e2e e2e-build e2e-cluster e2e-load e2e-deploy e2e-verify e2e-cleanup e2e-test
 
 APP_NAME := packetsorter
 BUILD_DIR := bin
@@ -119,6 +119,7 @@ help:
 	@echo "  make install-tools  - Install development tools"
 	@echo "  make metrics        - Show current metrics"
 	@echo "  make e2e            - Run end-to-end tests on kind cluster"
+	@echo "  make e2e-test       - Run e2e tests against local/running service"
 	@echo "  make help           - Show this help message"
 
 ## Run end-to-end tests on kind cluster
@@ -166,7 +167,7 @@ e2e-deploy:
 	@echo "Deploying Kubernetes manifests..."
 	kubectl apply -f $(E2E_MANIFESTS_DIR)/
 
-## Wait for services to be ready
+## Wait for services to be ready and run e2e tests
 e2e-verify:
 	@echo "Waiting for services to be ready..."
 	kubectl wait --for=condition=available deployment/$(APP_NAME) -n packetsorter --timeout=60s
@@ -174,6 +175,24 @@ e2e-verify:
 	@echo "Services are running!"
 	@kubectl get pods -n packetsorter
 	@kubectl get svc -n packetsorter
+	@echo ""
+	@echo "Running e2e tests against deployed service..."
+	@kubectl port-forward -n packetsorter svc/$(APP_NAME) 8080:8080 > /dev/null 2>&1 & \
+	PORT_FORWARD_PID=$$!; \
+	echo "Port-forward started (PID: $$PORT_FORWARD_PID)"; \
+	sleep 3; \
+	cd test/e2e && go test -v . -timeout=120s; \
+	EXIT_CODE=$$?; \
+	kill $$PORT_FORWARD_PID 2>/dev/null || true; \
+	exit $$EXIT_CODE
+
+## Run e2e tests directly (requires port-forward or local instance)
+## 
+## Use this to run tests against an already-running service.
+## For full e2e flow including cluster provisioning, use 'make e2e'
+e2e-test:
+	@echo "Running e2e tests..."
+	cd test/e2e && go test -v . -timeout=120s
 
 ## Cleanup kind cluster
 e2e-cleanup:
