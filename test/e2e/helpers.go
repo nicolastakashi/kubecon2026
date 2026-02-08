@@ -155,19 +155,13 @@ func CloseResponse(resp *http.Response) {
 // AssertStatusCode asserts that the response has the expected status code
 func AssertStatusCode(t *testing.T, resp *http.Response, expected int, msgAndArgs ...interface{}) {
 	t.Helper()
-
-	body, _ := io.ReadAll(resp.Body)
-	assert.Equal(t, expected, resp.StatusCode,
-		append([]interface{}{"unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, expected, string(body)}, msgAndArgs...)...)
+	assert.Equal(t, expected, resp.StatusCode, msgAndArgs...)
 }
 
 // RequireStatusCode requires that the response has the expected status code (fatal)
 func RequireStatusCode(t *testing.T, resp *http.Response, expected int, msgAndArgs ...interface{}) {
 	t.Helper()
-
-	body, _ := io.ReadAll(resp.Body)
-	require.Equal(t, expected, resp.StatusCode,
-		append([]interface{}{"unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, expected, string(body)}, msgAndArgs...)...)
+	require.Equal(t, expected, resp.StatusCode, msgAndArgs...)
 }
 
 // AssertJSONResponse asserts that the response body matches expected JSON
