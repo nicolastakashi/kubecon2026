@@ -155,9 +155,6 @@ func CloseResponse(resp *http.Response) {
 // AssertStatusCode asserts that the response has the expected status code
 func AssertStatusCode(t *testing.T, resp *http.Response, expected int, msgAndArgs ...interface{}) {
 	t.Helper()
-	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
-	}
 
 	body, _ := io.ReadAll(resp.Body)
 	assert.Equal(t, expected, resp.StatusCode,
@@ -167,9 +164,6 @@ func AssertStatusCode(t *testing.T, resp *http.Response, expected int, msgAndArg
 // RequireStatusCode requires that the response has the expected status code (fatal)
 func RequireStatusCode(t *testing.T, resp *http.Response, expected int, msgAndArgs ...interface{}) {
 	t.Helper()
-	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
-	}
 
 	body, _ := io.ReadAll(resp.Body)
 	require.Equal(t, expected, resp.StatusCode,
