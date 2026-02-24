@@ -19,6 +19,9 @@ go.work.sum
 
 # Dependency directories
 vendor/
+!templates/vendor/
+!templates/vendor/otel-go/
+!templates/vendor/otel-go/**
 
 # SQLite databases
 *.db
