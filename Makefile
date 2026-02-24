@@ -1,5 +1,6 @@
 .PHONY: all build run test clean deps fmt vet lint docker help
 .PHONY: e2e e2e-build e2e-cluster e2e-load e2e-deploy e2e-verify e2e-cleanup e2e-test
+.PHONY: vendor-otel-templates
 
 APP_NAME := packetsorter
 BUILD_DIR := bin
@@ -7,6 +8,9 @@ MAIN_FILE := cmd/packetsorter/main.go
 DB_FILE := parcels.db
 CLUSTER_NAME := packetsorter-e2e
 E2E_MANIFESTS_DIR := test/e2e/manifests
+OTEL_GO_REPO := https://github.com/open-telemetry/opentelemetry-go.git
+OTEL_GO_REF ?= main
+OTEL_GO_VENDOR_DIR := templates/vendor/otel-go
 
 # Default target
 all: build
@@ -118,9 +122,28 @@ help:
 	@echo "  make security       - Check for security vulnerabilities"
 	@echo "  make install-tools  - Install development tools"
 	@echo "  make metrics        - Show current metrics"
+	@echo "  make vendor-otel-templates - Vendor OTel community registry templates"
 	@echo "  make e2e            - Run end-to-end tests on kind cluster"
 	@echo "  make e2e-test       - Run e2e tests against local/running service"
 	@echo "  make help           - Show this help message"
+
+## Vendor upstream OpenTelemetry Go registry templates
+vendor-otel-templates:
+	@echo "Vendoring OTel templates from $(OTEL_GO_REPO)@$(OTEL_GO_REF)..."
+	@TMP_DIR=$$(mktemp -d) && \
+		git clone --depth 1 --filter=blob:none --sparse --branch $(OTEL_GO_REF) $(OTEL_GO_REPO) $$TMP_DIR/opentelemetry-go && \
+		git -C $$TMP_DIR/opentelemetry-go sparse-checkout set semconv/templates/registry/go && \
+		COMMIT=$$(git -C $$TMP_DIR/opentelemetry-go rev-parse HEAD) && \
+		rm -rf $(OTEL_GO_VENDOR_DIR) && \
+		mkdir -p $(OTEL_GO_VENDOR_DIR)/semconv/templates/registry && \
+		cp -R $$TMP_DIR/opentelemetry-go/semconv/templates/registry/go $(OTEL_GO_VENDOR_DIR)/semconv/templates/registry/go && \
+		printf '%s\n' \
+		  "source_repo=https://github.com/open-telemetry/opentelemetry-go" \
+		  "source_path=semconv/templates/registry/go" \
+		  "source_commit=$$COMMIT" \
+		  > $(OTEL_GO_VENDOR_DIR)/VENDOR_METADATA && \
+		rm -rf $$TMP_DIR && \
+		echo "Vendored OTel templates at commit $$COMMIT"
 
 ## Run end-to-end tests on kind cluster
 ## 

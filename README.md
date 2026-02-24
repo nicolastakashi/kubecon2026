@@ -102,3 +102,22 @@ docker run -p 8080:8080 packetsorter
 ```
 
 This app is ~250 lines of Go with rich telemetry surface - perfect for demonstrating schema-driven observability!
+
+## Vendored OTel Templates
+
+This repo vendors the OpenTelemetry community Go registry templates under:
+
+- `templates/vendor/otel-go/semconv/templates/registry/go`
+- `templates/vendor/otel-go/VENDOR_METADATA`
+
+Refresh to the latest upstream ref with:
+
+```bash
+make vendor-otel-templates
+```
+
+Pin to a specific tag or commit with:
+
+```bash
+make vendor-otel-templates OTEL_GO_REF=v1.38.0
+```
