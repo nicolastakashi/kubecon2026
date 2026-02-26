@@ -82,7 +82,15 @@ lint: fmt vet
 ## Build Docker image
 docker:
 	@echo "Building Docker image..."
-	docker build -t $(APP_NAME):latest .
+	@if docker buildx version >/dev/null 2>&1; then \
+		docker buildx build --load -t $(APP_NAME):latest . || { \
+			echo "docker buildx build failed; falling back to classic docker build"; \
+			docker build -t $(APP_NAME):latest .; \
+		}; \
+	else \
+		echo "docker buildx not available; using classic docker build"; \
+		docker build -t $(APP_NAME):latest .; \
+	fi
 
 ## Check for security vulnerabilities (requires govulncheck)
 security:
@@ -194,6 +202,7 @@ e2e-deploy:
 e2e-verify:
 	@echo "Waiting for services to be ready..."
 	kubectl wait --for=condition=available deployment/$(APP_NAME) -n packetsorter --timeout=60s
+	kubectl wait --for=condition=available deployment/otel-collector -n packetsorter --timeout=60s
 	@echo ""
 	@echo "Services are running!"
 	@kubectl get pods -n packetsorter
@@ -201,13 +210,18 @@ e2e-verify:
 	@echo ""
 	@echo "Running e2e tests against deployed service..."
 	@kubectl port-forward -n packetsorter svc/$(APP_NAME) 8080:8080 > /dev/null 2>&1 & \
-	PORT_FORWARD_PID=$$!; \
-	echo "Port-forward started (PID: $$PORT_FORWARD_PID)"; \
+	APP_PORT_FORWARD_PID=$$!; \
+	kubectl port-forward -n packetsorter svc/otel-collector 8888:8888 > /dev/null 2>&1 & \
+	OTEL_PORT_FORWARD_PID=$$!; \
+	cleanup() { \
+		kill $$APP_PORT_FORWARD_PID 2>/dev/null || true; \
+		kill $$OTEL_PORT_FORWARD_PID 2>/dev/null || true; \
+	}; \
+	trap cleanup EXIT INT TERM; \
+	echo "Port-forward started for app (PID: $$APP_PORT_FORWARD_PID)"; \
+	echo "Port-forward started for collector (PID: $$OTEL_PORT_FORWARD_PID)"; \
 	sleep 3; \
-	cd test/e2e && go test -v . -timeout=120s; \
-	EXIT_CODE=$$?; \
-	kill $$PORT_FORWARD_PID 2>/dev/null || true; \
-	exit $$EXIT_CODE
+	cd test/e2e && TEST_BASE_URL=http://localhost:8080 TEST_OTELCOLLECTOR_URL=http://localhost:8888 go test -v . -timeout=120s
 
 ## Run e2e tests directly (requires port-forward or local instance)
 ## 

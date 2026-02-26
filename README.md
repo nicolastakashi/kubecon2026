@@ -75,6 +75,36 @@ curl -X POST http://localhost:8080/api/parcels/PKG-xxx/ship
 curl http://localhost:8080/metrics
 ```
 
+## OpenTelemetry Collector in E2E (Local + CI)
+
+The e2e flow deploys an in-cluster OpenTelemetry Collector that scrapes the app's
+Prometheus endpoint (`/metrics`) and runs a metrics pipeline.
+
+- Local run: `make e2e`
+- CI run: use the same `make e2e` flow
+
+Collector setup in e2e manifests:
+- Receiver: `prometheus` scraping `packetsorter.packetsorter.svc.cluster.local:8080/metrics`
+- Processors: `memory_limiter`, `batch`
+- Exporters: `debug` (always on), `otlphttp` (configurable by env vars)
+
+The e2e target also port-forwards:
+- app service on `http://localhost:8080`
+- collector metrics on `http://localhost:8888`
+
+This enables an e2e assertion that the collector has accepted metric points.
+
+### Exporting to a backend later
+
+By default, collector metrics are emitted to the `debug` exporter and OTLP HTTP
+uses a local default endpoint. To ship to a real backend, set:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` (example: `http://your-backend:4318`)
+- `OTEL_EXPORTER_OTLP_INSECURE` (`true` or `false`)
+
+These env vars are read by the collector config in
+`test/e2e/manifests/otel-collector.yaml`.
+
 ## Schema-Driven Demo Ideas
 
 Perfect for your KubeCon talk on Telemetry First:

@@ -5,6 +5,7 @@ metadata:
   namespace: packetsorter
   labels:
     app: packetsorter
+    app.kubernetes.io/name: packetsorter
 spec:
   replicas: 1
   selector:
@@ -14,6 +15,7 @@ spec:
     metadata:
       labels:
         app: packetsorter
+        app.kubernetes.io/name: packetsorter
     spec:
       containers:
       - name: packetsorter
@@ -25,6 +27,13 @@ spec:
         env:
         - name: DB_PATH
           value: /data/parcels.db
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
         volumeMounts:
         - name: data
           mountPath: /data
@@ -51,6 +60,7 @@ metadata:
   namespace: packetsorter
   labels:
     app: packetsorter
+    app.kubernetes.io/name: packetsorter
 spec:
   selector:
     app: packetsorter
