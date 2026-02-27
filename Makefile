@@ -1,5 +1,6 @@
 .PHONY: all build run test clean deps fmt vet lint docker help
 .PHONY: e2e e2e-build e2e-cluster e2e-load e2e-deploy e2e-verify e2e-cleanup e2e-test
+.PHONY: up env-setup e2e-ready
 .PHONY: vendor-otel-templates
 
 APP_NAME := packetsorter
@@ -131,6 +132,8 @@ help:
 	@echo "  make install-tools  - Install development tools"
 	@echo "  make metrics        - Show current metrics"
 	@echo "  make vendor-otel-templates - Vendor OTel community registry templates"
+	@echo "  make up             - Setup local kind env (build, cluster, deploy, wait)"
+	@echo "  make env-setup      - Alias for 'make up'"
 	@echo "  make e2e            - Run end-to-end tests on kind cluster"
 	@echo "  make e2e-test       - Run e2e tests against local/running service"
 	@echo "  make help           - Show this help message"
@@ -162,11 +165,15 @@ vendor-otel-templates:
 ## 4. Deploy manifests
 ## 5. Verify services are ready
 ## 6. Cleanup cluster
-e2e: e2e-build e2e-cluster e2e-load e2e-deploy e2e-verify
+e2e: up e2e-verify
 	@echo "========================================"
 	@echo "  E2E tests completed successfully!"
 	@echo "========================================"
 	@make e2e-cleanup
+
+## Setup local kind environment for exploration (no tests, no cleanup)
+up env-setup: e2e-build e2e-cluster e2e-load e2e-deploy e2e-ready
+	@echo "Local e2e environment is ready."
 
 ## Build Docker image for e2e tests
 e2e-build:
@@ -198,8 +205,8 @@ e2e-deploy:
 	@echo "Deploying Kubernetes manifests..."
 	kubectl apply -f $(E2E_MANIFESTS_DIR)/
 
-## Wait for services to be ready and run e2e tests
-e2e-verify:
+## Wait for services to be ready
+e2e-ready:
 	@echo "Waiting for services to be ready..."
 	kubectl wait --for=condition=available deployment/$(APP_NAME) -n packetsorter --timeout=60s
 	kubectl wait --for=condition=available deployment/otel-collector -n packetsorter --timeout=60s
@@ -208,6 +215,9 @@ e2e-verify:
 	@kubectl get pods -n packetsorter
 	@kubectl get svc -n packetsorter
 	@echo ""
+
+## Run e2e tests against ready services
+e2e-verify: e2e-ready
 	@echo "Running e2e tests against deployed service..."
 	@kubectl port-forward -n packetsorter svc/$(APP_NAME) 8080:8080 > /dev/null 2>&1 & \
 	APP_PORT_FORWARD_PID=$$!; \
