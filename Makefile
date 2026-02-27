@@ -22,16 +22,17 @@ E2E_TEST_CMD := cd $(E2E_TEST_DIR) && go test -count=1 -v . -timeout=120s
 OTEL_COLLECTOR_IMAGE ?= otel/opentelemetry-collector-contrib:0.146.0
 OTEL_COLLECTOR_CONFIG ?= config/otel-collector-config-local.yaml
 OTEL_COLLECTOR_CONTAINER ?= otel-collector-local
-COLLECTOR_CLEANUP := $(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
 
 WEAVER_IMAGE ?= otel/weaver:main
 WEAVER_CONTAINER ?= weaver-infer
 WEAVER_INFER_PORT ?= 4319
 WEAVER_ADMIN_PORT ?= 4320
 WEAVER_INACTIVITY_TIMEOUT ?= 300
-WEAVER_OUTPUT_DIR ?= inferred-registry
-WEAVER_STOP_CMD := curl -s -X POST http://localhost:$(WEAVER_ADMIN_PORT)/stop 2>/dev/null || true
-WEAVER_CLEANUP := $(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
+WEAVER_OUTPUT_DIR ?= registry
+
+WEAVER_LIVE_CHECK_CONTAINER ?= weaver-live-check
+WEAVER_LIVE_CHECK_PORT ?= 4319
+WEAVER_LIVE_CHECK_ADMIN_PORT ?= 4321
 
 WEAVER := $(TOOLS_DIR)/weaver
 OTEL_GO_REPO := https://github.com/open-telemetry/opentelemetry-go.git
@@ -39,12 +40,12 @@ OTEL_GO_REF ?= main
 OTEL_GO_VENDOR_DIR := templates/vendor/otel-go
 
 .PHONY: all build image clean \
-	run run-otel run-otel-weaver metrics \
-	start-collector stop-collector start-weaver-infer stop-weaver-infer weaver-infer-logs \
-	test test-e2e test-e2e-weaver \
+	run run-collector run-weaver-infer run-weaver-live-check metrics \
+	test test-e2e \
 	lint tidy \
 	kind-up kind-down kind-test e2e \
 	weaver vendor-otel-templates \
+	infer-schema live-check \
 	help
 
 ##@ Build
@@ -58,87 +59,66 @@ image: ## Build the local container image.
 	$(CONTAINER_CLI) build -t $(IMAGE_NAME):$(IMAGE_TAG) .
 
 clean: ## Remove generated build/test artifacts.
-	rm -rf $(BUILD_DIR) $(DB_FILE) tmp/ inferred-registry/
+	rm -rf $(BUILD_DIR) $(DB_FILE) tmp/ generated/ $(WEAVER_OUTPUT_DIR)/
 	rm -f coverage.out coverage.html
 
 ##@ Run
 run: build ## Run the application locally.
 	./$(APP_BIN)
 
-run-otel: build start-collector ## Run app with the local OTel collector.
-	@echo "App:            http://localhost:8080"
-	@echo "Collector:      http://localhost:8888/metrics"
+run-collector: ## Run the OTel collector (foreground).
+	@echo "Starting OTel Collector..."
+	@echo "Metrics:    http://localhost:8888/metrics"
+	@echo "Health:     http://localhost:13133"
 	@echo ""
-	@trap '$(COLLECTOR_CLEANUP)' EXIT; ./$(APP_BIN)
-
-run-otel-weaver: build start-weaver-infer start-collector ## Run app with collector and Weaver infer.
-	@echo "App:            http://localhost:8080"
-	@echo "Collector:      http://localhost:8888/metrics"
-	@echo "Weaver Admin:   http://localhost:$(WEAVER_ADMIN_PORT)/stop"
-	@echo "Schema Output:  $(WEAVER_OUTPUT_DIR)/"
-	@echo "Weaver Logs:    make weaver-infer-logs"
-	@echo ""
-	@trap '$(WEAVER_STOP_CMD); $(WEAVER_CLEANUP); $(COLLECTOR_CLEANUP)' EXIT; ./$(APP_BIN)
-
-metrics: ## Print metrics from a running local app.
-	@curl -fsS http://localhost:8080/metrics
-
-##@ Observability Helpers
-start-collector: ## Start local OpenTelemetry Collector container.
-	@$(COLLECTOR_CLEANUP)
-	@$(CONTAINER_CLI) run -d --name $(OTEL_COLLECTOR_CONTAINER) \
+	$(CONTAINER_CLI) run --rm --name $(OTEL_COLLECTOR_CONTAINER) \
 		-p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
 		-v $(PWD)/$(OTEL_COLLECTOR_CONFIG):/conf/otel-collector-config.yaml:ro \
-		$(OTEL_COLLECTOR_IMAGE) --config=/conf/otel-collector-config.yaml >/dev/null
-	@echo "OTel Collector started"
+		$(OTEL_COLLECTOR_IMAGE) --config=/conf/otel-collector-config.yaml
 
-stop-collector: ## Stop local OpenTelemetry Collector container.
-	@$(COLLECTOR_CLEANUP)
-
-start-weaver-infer: ## Start Weaver infer and write schema to inferred-registry/.
+run-weaver-infer: ## Run Weaver infer (foreground).
 	@mkdir -p $(WEAVER_OUTPUT_DIR)
-	@$(WEAVER_CLEANUP)
-	@$(CONTAINER_CLI) run -d --name $(WEAVER_CONTAINER) \
+	@echo "Starting Weaver infer..."
+	@echo "OTLP Endpoint:  localhost:$(WEAVER_INFER_PORT)"
+	@echo "Admin API:      http://localhost:$(WEAVER_ADMIN_PORT)/stop"
+	@echo "Schema Output:  $(WEAVER_OUTPUT_DIR)/"
+	@echo ""
+	$(CONTAINER_CLI) run --rm --name $(WEAVER_CONTAINER) \
 		-p $(WEAVER_INFER_PORT):4317 \
 		-p $(WEAVER_ADMIN_PORT):8080 \
 		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/output \
 		$(WEAVER_IMAGE) registry infer \
 			--output /output \
-			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT) >/dev/null
-	@echo "Weaver infer started on port $(WEAVER_INFER_PORT)"
-	@echo "Schema output: $(WEAVER_OUTPUT_DIR)/"
+			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT)
 
-stop-weaver-infer: ## Stop Weaver infer and flush schema output.
-	@$(WEAVER_STOP_CMD)
-	@$(WEAVER_CLEANUP)
+run-weaver-live-check: ## Run Weaver live-check (foreground).
+	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
+		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
+		echo "Run 'make infer-schema' first."; \
+		exit 1; \
+	fi
+	@echo "Starting Weaver live-check..."
+	@echo "OTLP Endpoint:  localhost:$(WEAVER_LIVE_CHECK_PORT)"
+	@echo "Admin API:      http://localhost:$(WEAVER_LIVE_CHECK_ADMIN_PORT)/stop"
+	@echo "Schema:         $(WEAVER_OUTPUT_DIR)/"
+	@echo ""
+	$(CONTAINER_CLI) run --rm --name $(WEAVER_LIVE_CHECK_CONTAINER) \
+		-p $(WEAVER_LIVE_CHECK_PORT):4317 \
+		-p $(WEAVER_LIVE_CHECK_ADMIN_PORT):8080 \
+		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
+		$(WEAVER_IMAGE) registry live-check \
+			--registry /registry \
+			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT)
 
-weaver-infer-logs: ## Follow logs from the Weaver infer container.
-	@$(CONTAINER_CLI) logs -f $(WEAVER_CONTAINER)
+metrics: ## Print metrics from a running local app.
+	@curl -fsS http://localhost:8080/metrics
 
 ##@ Test
 test: ## Run unit tests.
 	go test -race -short ./...
 
-test-e2e: build start-collector ## Run local e2e tests with collector.
-	@./$(APP_BIN) & APP_PID=$$!; \
-	trap 'kill $$APP_PID 2>/dev/null; $(COLLECTOR_CLEANUP)' EXIT; \
-	sleep 2; \
-	$(E2E_TEST_CMD)
-
-test-e2e-weaver: build start-weaver-infer start-collector ## Run e2e tests and infer schema with Weaver.
-	@echo "Running e2e tests with Weaver infer..."
-	@./$(APP_BIN) & APP_PID=$$!; \
-	trap 'kill $$APP_PID 2>/dev/null; $(WEAVER_STOP_CMD); $(WEAVER_CLEANUP); $(COLLECTOR_CLEANUP)' EXIT; \
-	sleep 2; \
-	$(E2E_TEST_CMD); \
-	echo ""; \
-	echo "Waiting for OTel Collector to scrape and forward metrics..."; \
-	sleep 10; \
-	echo "Stopping Weaver to flush schema..."; \
-	$(WEAVER_STOP_CMD); \
-	sleep 2; \
-	echo ""; \
-	echo "Inferred schema written to $(WEAVER_OUTPUT_DIR)/"
+test-e2e: ## Run e2e tests (assumes app is running on :8080).
+	@$(E2E_TEST_CMD)
 
 ##@ Development
 lint: ## Run formatters and linters.
@@ -171,6 +151,115 @@ kind-test: kind-up ## Run e2e tests against kind and clean up automatically.
 	cd $(E2E_TEST_DIR) && TEST_BASE_URL=http://localhost:8080 go test -v . -timeout=120s
 
 e2e: kind-test ## Compatibility alias for previous e2e target name.
+
+##@ Schema Inference
+infer-schema: build ## Infer schema from app telemetry (runs full pipeline).
+	@echo ""
+	@echo "=========================================="
+	@echo "  Starting Schema Inference Pipeline"
+	@echo "=========================================="
+	@echo ""
+	@mkdir -p $(WEAVER_OUTPUT_DIR)
+	@# Start Weaver infer in background
+	@echo "[1/5] Starting Weaver infer..."
+	@$(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
+	@$(CONTAINER_CLI) run -d --name $(WEAVER_CONTAINER) \
+		-p $(WEAVER_INFER_PORT):4317 \
+		-p $(WEAVER_ADMIN_PORT):8080 \
+		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/output \
+		$(WEAVER_IMAGE) registry infer \
+			--output /output \
+			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT) >/dev/null
+	@sleep 2
+	@# Start Collector in background
+	@echo "[2/5] Starting OTel Collector..."
+	@$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
+	@$(CONTAINER_CLI) run -d --name $(OTEL_COLLECTOR_CONTAINER) \
+		-p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
+		-v $(PWD)/$(OTEL_COLLECTOR_CONFIG):/conf/otel-collector-config.yaml:ro \
+		$(OTEL_COLLECTOR_IMAGE) --config=/conf/otel-collector-config.yaml >/dev/null
+	@sleep 2
+	@# Start app in background
+	@echo "[3/5] Starting application..."
+	@./$(APP_BIN) & APP_PID=$$!; \
+	sleep 2; \
+	echo "[4/5] Running e2e tests..."; \
+	echo ""; \
+	$(E2E_TEST_CMD) || true; \
+	echo ""; \
+	echo "[5/5] Waiting for metrics to be scraped..."; \
+	sleep 10; \
+	echo "Stopping Weaver to flush schema..."; \
+	curl -s -X POST http://localhost:$(WEAVER_ADMIN_PORT)/stop 2>/dev/null || true; \
+	sleep 2; \
+	kill $$APP_PID 2>/dev/null || true
+	@# Cleanup containers
+	@$(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
+	@$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
+	@echo ""
+	@echo "=========================================="
+	@echo "  Schema inferred successfully!"
+	@echo "  Output: $(WEAVER_OUTPUT_DIR)/"
+	@echo "=========================================="
+	@echo ""
+
+live-check: build ## Validate app telemetry against schema (runs full pipeline).
+	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
+		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
+		echo "Run 'make infer-schema' first."; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "=========================================="
+	@echo "  Starting Live-Check Validation"
+	@echo "=========================================="
+	@echo ""
+	@# Start Weaver live-check in background
+	@echo "[1/5] Starting Weaver live-check..."
+	@$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true
+	@$(CONTAINER_CLI) run -d --name $(WEAVER_LIVE_CHECK_CONTAINER) \
+		-p $(WEAVER_LIVE_CHECK_PORT):4317 \
+		-p $(WEAVER_LIVE_CHECK_ADMIN_PORT):8080 \
+		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
+		$(WEAVER_IMAGE) registry live-check \
+			--registry /registry \
+			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT) >/dev/null
+	@sleep 2
+	@# Start Collector in background
+	@echo "[2/5] Starting OTel Collector..."
+	@$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
+	@$(CONTAINER_CLI) run -d --name $(OTEL_COLLECTOR_CONTAINER) \
+		-p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
+		-v $(PWD)/$(OTEL_COLLECTOR_CONFIG):/conf/otel-collector-config.yaml:ro \
+		$(OTEL_COLLECTOR_IMAGE) --config=/conf/otel-collector-config.yaml >/dev/null
+	@sleep 2
+	@# Start app in background
+	@echo "[3/5] Starting application..."
+	@./$(APP_BIN) & APP_PID=$$!; \
+	sleep 2; \
+	echo "[4/5] Running e2e tests..."; \
+	echo ""; \
+	$(E2E_TEST_CMD) || true; \
+	echo ""; \
+	echo "[5/5] Waiting for metrics to be validated..."; \
+	sleep 10; \
+	echo ""; \
+	echo "=========================================="; \
+	echo "  Live-Check Results"; \
+	echo "=========================================="; \
+	$(CONTAINER_CLI) logs $(WEAVER_LIVE_CHECK_CONTAINER) 2>&1 | tail -50; \
+	echo ""; \
+	curl -s -X POST http://localhost:$(WEAVER_LIVE_CHECK_ADMIN_PORT)/stop 2>/dev/null || true; \
+	sleep 2; \
+	kill $$APP_PID 2>/dev/null || true
+	@# Cleanup containers
+	@$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true
+	@$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
+	@echo ""
+	@echo "=========================================="
+	@echo "  Live-check validation complete!"
+	@echo "=========================================="
+	@echo ""
 
 ##@ Tooling
 weaver: $(WEAVER) ## Print local Weaver CLI version.
