@@ -38,9 +38,6 @@ make build
 # Run
 make run
 
-# Run with load generator
-make run-with-load
-
 # View metrics (while running)
 make metrics
 
@@ -122,13 +119,6 @@ docker build -t packetsorter .
 
 # Run
 docker run -p 8080:8080 packetsorter
-```
-
-## Load Testing
-
-```bash
-# Generate continuous traffic
-./scripts/loadtest.sh
 ```
 
 This app is ~250 lines of Go with rich telemetry surface - perfect for demonstrating schema-driven observability!
