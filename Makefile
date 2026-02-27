@@ -1,248 +1,198 @@
-.PHONY: all build run test clean deps fmt vet lint docker help
-.PHONY: e2e e2e-build e2e-cluster e2e-load e2e-deploy e2e-verify e2e-cleanup e2e-test
-.PHONY: up env-setup e2e-ready
-.PHONY: vendor-otel-templates
+SHELL := /usr/bin/env bash -o pipefail
+.DEFAULT_GOAL := help
 
-APP_NAME := packetsorter
-BUILD_DIR := bin
-MAIN_FILE := cmd/packetsorter/main.go
-DB_FILE := parcels.db
-CLUSTER_NAME := packetsorter-e2e
-E2E_MANIFESTS_DIR := test/e2e/manifests
+APP_NAME ?= packetsorter
+BUILD_DIR ?= bin
+APP_BIN := $(BUILD_DIR)/$(APP_NAME)
+MAIN_FILE ?= cmd/packetsorter/main.go
+DB_FILE ?= parcels.db
+
+CONTAINER_CLI ?= docker
+IMAGE_NAME ?= $(APP_NAME)
+IMAGE_TAG ?= latest
+
+TOOLS_DIR := $(CURDIR)/tmp/bin
+WEAVER_VERSION ?= 0.21.2
+
+CLUSTER_NAME ?= packetsorter-e2e
+E2E_MANIFESTS ?= test/e2e/manifests
+E2E_TEST_DIR ?= test/e2e
+E2E_TEST_CMD := cd $(E2E_TEST_DIR) && go test -count=1 -v . -timeout=120s
+
+OTEL_COLLECTOR_IMAGE ?= otel/opentelemetry-collector-contrib:0.146.0
+OTEL_COLLECTOR_CONFIG ?= config/otel-collector-config-local.yaml
+OTEL_COLLECTOR_CONTAINER ?= otel-collector-local
+COLLECTOR_CLEANUP := $(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
+
+WEAVER_IMAGE ?= otel/weaver:main
+WEAVER_CONTAINER ?= weaver-infer
+WEAVER_INFER_PORT ?= 4319
+WEAVER_ADMIN_PORT ?= 4320
+WEAVER_INACTIVITY_TIMEOUT ?= 300
+WEAVER_OUTPUT_DIR ?= inferred-registry
+WEAVER_STOP_CMD := curl -s -X POST http://localhost:$(WEAVER_ADMIN_PORT)/stop 2>/dev/null || true
+WEAVER_CLEANUP := $(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
+
+WEAVER := $(TOOLS_DIR)/weaver
 OTEL_GO_REPO := https://github.com/open-telemetry/opentelemetry-go.git
 OTEL_GO_REF ?= main
 OTEL_GO_VENDOR_DIR := templates/vendor/otel-go
 
-# Default target
-all: build
+.PHONY: all build image clean \
+	run run-otel run-otel-weaver metrics \
+	start-collector stop-collector start-weaver-infer stop-weaver-infer weaver-infer-logs \
+	test test-e2e test-e2e-weaver \
+	lint tidy \
+	kind-up kind-down kind-test e2e \
+	weaver vendor-otel-templates \
+	help
 
-## Build the application
-build:
-	@echo "Building $(APP_NAME)..."
+##@ Build
+all: build ## Build the application binary.
+
+build: ## Compile the application to bin/.
 	@mkdir -p $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$(APP_NAME) $(MAIN_FILE)
-	@echo "Build complete: ./$(BUILD_DIR)/$(APP_NAME)"
+	go build -o $(APP_BIN) $(MAIN_FILE)
 
-## Run the application
-run: build
-	@echo "Starting $(APP_NAME)..."
-	./$(BUILD_DIR)/$(APP_NAME)
+image: ## Build the local container image.
+	$(CONTAINER_CLI) build -t $(IMAGE_NAME):$(IMAGE_TAG) .
 
-## Run with load generator
-run-with-load: build
-	@echo "Starting $(APP_NAME) and load generator..."
-	./$(BUILD_DIR)/$(APP_NAME) &
-	@sleep 2
-	./scripts/loadtest.sh
-
-## Run tests
-test:
-	@echo "Running tests..."
-	go test -v ./...
-
-## Run tests with coverage
-test-coverage:
-	@echo "Running tests with coverage..."
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report: coverage.html"
-
-## Clean build artifacts and database
-clean:
-	@echo "Cleaning..."
-	rm -rf $(BUILD_DIR)
-	rm -f $(DB_FILE)
+clean: ## Remove generated build/test artifacts.
+	rm -rf $(BUILD_DIR) $(DB_FILE) tmp/ inferred-registry/
 	rm -f coverage.out coverage.html
-	@echo "Clean complete"
 
-## Download and tidy dependencies
-deps:
-	@echo "Downloading dependencies..."
-	go mod tidy
-	go mod download
+##@ Run
+run: build ## Run the application locally.
+	./$(APP_BIN)
 
-## Format Go code
-fmt:
-	@echo "Formatting code..."
-	go fmt ./...
-
-## Run go vet
-vet:
-	@echo "Running go vet..."
-	go vet ./...
-
-## Run all linters (requires golangci-lint)
-lint: fmt vet
-	@echo "Running linters..."
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
-	fi
-
-## Build Docker image
-docker:
-	@echo "Building Docker image..."
-	@if docker buildx version >/dev/null 2>&1; then \
-		docker buildx build --load -t $(APP_NAME):latest . || { \
-			echo "docker buildx build failed; falling back to classic docker build"; \
-			docker build -t $(APP_NAME):latest .; \
-		}; \
-	else \
-		echo "docker buildx not available; using classic docker build"; \
-		docker build -t $(APP_NAME):latest .; \
-	fi
-
-## Check for security vulnerabilities (requires govulncheck)
-security:
-	@echo "Checking for vulnerabilities..."
-	@if command -v govulncheck >/dev/null 2>&1; then \
-		govulncheck ./...; \
-	else \
-		echo "govulncheck not installed. Run: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
-	fi
-
-## Install development tools
-install-tools:
-	@echo "Installing development tools..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install golang.org/x/vuln/cmd/govulncheck@latest
-
-## Show metrics endpoint
-metrics:
-	@echo "Fetching metrics from localhost:8080..."
-	@curl -s http://localhost:8080/metrics | grep -E "^parcels_|^stage_duration_|^parcels_backlog_|^rework_reason_"
-
-## Show help
-help:
-	@echo "Available targets:"
+run-otel: build start-collector ## Run app with the local OTel collector.
+	@echo "App:            http://localhost:8080"
+	@echo "Collector:      http://localhost:8888/metrics"
 	@echo ""
-	@echo "  make build          - Build the application"
-	@echo "  make run            - Build and run the application"
-	@echo "  make run-with-load  - Run with load generator"
-	@echo "  make test           - Run tests"
-	@echo "  make test-coverage  - Run tests with coverage report"
-	@echo "  make clean          - Remove build artifacts and database"
-	@echo "  make deps           - Download and tidy Go dependencies"
-	@echo "  make fmt            - Format Go code"
-	@echo "  make vet            - Run go vet"
-	@echo "  make lint           - Run all linters"
-	@echo "  make docker         - Build Docker image"
-	@echo "  make security       - Check for security vulnerabilities"
-	@echo "  make install-tools  - Install development tools"
-	@echo "  make metrics        - Show current metrics"
-	@echo "  make vendor-otel-templates - Vendor OTel community registry templates"
-	@echo "  make up             - Setup local kind env (build, cluster, deploy, wait)"
-	@echo "  make env-setup      - Alias for 'make up'"
-	@echo "  make e2e            - Run end-to-end tests on kind cluster"
-	@echo "  make e2e-test       - Run e2e tests against local/running service"
-	@echo "  make help           - Show this help message"
+	@trap '$(COLLECTOR_CLEANUP)' EXIT; ./$(APP_BIN)
 
-## Vendor upstream OpenTelemetry Go registry templates
-vendor-otel-templates:
-	@echo "Vendoring OTel templates from $(OTEL_GO_REPO)@$(OTEL_GO_REF)..."
-	@TMP_DIR=$$(mktemp -d) && \
-		git clone --depth 1 --filter=blob:none --sparse --branch $(OTEL_GO_REF) $(OTEL_GO_REPO) $$TMP_DIR/opentelemetry-go && \
-		git -C $$TMP_DIR/opentelemetry-go sparse-checkout set semconv/templates/registry/go && \
-		COMMIT=$$(git -C $$TMP_DIR/opentelemetry-go rev-parse HEAD) && \
-		rm -rf $(OTEL_GO_VENDOR_DIR) && \
-		mkdir -p $(OTEL_GO_VENDOR_DIR)/semconv/templates/registry && \
-		cp -R $$TMP_DIR/opentelemetry-go/semconv/templates/registry/go $(OTEL_GO_VENDOR_DIR)/semconv/templates/registry/go && \
-		printf '%s\n' \
-		  "source_repo=https://github.com/open-telemetry/opentelemetry-go" \
-		  "source_path=semconv/templates/registry/go" \
-		  "source_commit=$$COMMIT" \
-		  > $(OTEL_GO_VENDOR_DIR)/VENDOR_METADATA && \
-		rm -rf $$TMP_DIR && \
-		echo "Vendored OTel templates at commit $$COMMIT"
+run-otel-weaver: build start-weaver-infer start-collector ## Run app with collector and Weaver infer.
+	@echo "App:            http://localhost:8080"
+	@echo "Collector:      http://localhost:8888/metrics"
+	@echo "Weaver Admin:   http://localhost:$(WEAVER_ADMIN_PORT)/stop"
+	@echo "Schema Output:  $(WEAVER_OUTPUT_DIR)/"
+	@echo "Weaver Logs:    make weaver-infer-logs"
+	@echo ""
+	@trap '$(WEAVER_STOP_CMD); $(WEAVER_CLEANUP); $(COLLECTOR_CLEANUP)' EXIT; ./$(APP_BIN)
 
-## Run end-to-end tests on kind cluster
-## 
-## This target orchestrates the full e2e flow:
-## 1. Build Docker image
-## 2. Create kind cluster (delete if exists)
-## 3. Load image into kind
-## 4. Deploy manifests
-## 5. Verify services are ready
-## 6. Cleanup cluster
-e2e: up e2e-verify
-	@echo "========================================"
-	@echo "  E2E tests completed successfully!"
-	@echo "========================================"
-	@make e2e-cleanup
+metrics: ## Print metrics from a running local app.
+	@curl -fsS http://localhost:8080/metrics
 
-## Setup local kind environment for exploration (no tests, no cleanup)
-up env-setup: e2e-build e2e-cluster e2e-load e2e-deploy e2e-ready
-	@echo "Local e2e environment is ready."
+##@ Observability Helpers
+start-collector: ## Start local OpenTelemetry Collector container.
+	@$(COLLECTOR_CLEANUP)
+	@$(CONTAINER_CLI) run -d --name $(OTEL_COLLECTOR_CONTAINER) \
+		-p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
+		-v $(PWD)/$(OTEL_COLLECTOR_CONFIG):/conf/otel-collector-config.yaml:ro \
+		$(OTEL_COLLECTOR_IMAGE) --config=/conf/otel-collector-config.yaml >/dev/null
+	@echo "OTel Collector started"
 
-## Build Docker image for e2e tests
-e2e-build:
-	@echo "Building Docker image for e2e tests..."
-	$(MAKE) docker
+stop-collector: ## Stop local OpenTelemetry Collector container.
+	@$(COLLECTOR_CLEANUP)
 
-## Create kind cluster (delete if exists)
-e2e-cluster:
-	@echo "Checking kind installation..."
-	@if ! command -v kind >/dev/null 2>&1; then \
-		echo "kind not installed. Run: brew install kind"; \
-		echo "Or see: https://kind.sigs.k8s.io/docs/user/quick-start/"; \
-		exit 1; \
-	fi
-	@echo "Creating kind cluster '$(CLUSTER_NAME)'..."
-	@if kind get clusters | grep -q "$(CLUSTER_NAME)"; then \
-		echo "Cluster exists, deleting..."; \
-		kind delete cluster --name $(CLUSTER_NAME); \
-	fi
+start-weaver-infer: ## Start Weaver infer and write schema to inferred-registry/.
+	@mkdir -p $(WEAVER_OUTPUT_DIR)
+	@$(WEAVER_CLEANUP)
+	@$(CONTAINER_CLI) run -d --name $(WEAVER_CONTAINER) \
+		-p $(WEAVER_INFER_PORT):4317 \
+		-p $(WEAVER_ADMIN_PORT):8080 \
+		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/output \
+		$(WEAVER_IMAGE) registry infer \
+			--output /output \
+			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT) >/dev/null
+	@echo "Weaver infer started on port $(WEAVER_INFER_PORT)"
+	@echo "Schema output: $(WEAVER_OUTPUT_DIR)/"
+
+stop-weaver-infer: ## Stop Weaver infer and flush schema output.
+	@$(WEAVER_STOP_CMD)
+	@$(WEAVER_CLEANUP)
+
+weaver-infer-logs: ## Follow logs from the Weaver infer container.
+	@$(CONTAINER_CLI) logs -f $(WEAVER_CONTAINER)
+
+##@ Test
+test: ## Run unit tests.
+	go test -race -short ./...
+
+test-e2e: build start-collector ## Run local e2e tests with collector.
+	@./$(APP_BIN) & APP_PID=$$!; \
+	trap 'kill $$APP_PID 2>/dev/null; $(COLLECTOR_CLEANUP)' EXIT; \
+	sleep 2; \
+	$(E2E_TEST_CMD)
+
+test-e2e-weaver: build start-weaver-infer start-collector ## Run e2e tests and infer schema with Weaver.
+	@echo "Running e2e tests with Weaver infer..."
+	@./$(APP_BIN) & APP_PID=$$!; \
+	trap 'kill $$APP_PID 2>/dev/null; $(WEAVER_STOP_CMD); $(WEAVER_CLEANUP); $(COLLECTOR_CLEANUP)' EXIT; \
+	sleep 2; \
+	$(E2E_TEST_CMD); \
+	echo ""; \
+	echo "Waiting for OTel Collector to scrape and forward metrics..."; \
+	sleep 10; \
+	echo "Stopping Weaver to flush schema..."; \
+	$(WEAVER_STOP_CMD); \
+	sleep 2; \
+	echo ""; \
+	echo "Inferred schema written to $(WEAVER_OUTPUT_DIR)/"
+
+##@ Development
+lint: ## Run formatters and linters.
+	go fmt ./...
+	go vet ./...
+	@command -v golangci-lint >/dev/null && golangci-lint run || echo "golangci-lint not installed"
+
+tidy: ## Ensure go.mod/go.sum are tidy.
+	go mod tidy
+
+##@ Kubernetes
+kind-up: image ## Create a fresh kind cluster and deploy app + collector.
+	@command -v kind >/dev/null || { echo "kind not installed"; exit 1; }
+	@kind get clusters | grep -q $(CLUSTER_NAME) && kind delete cluster --name $(CLUSTER_NAME) || true
 	kind create cluster --name $(CLUSTER_NAME)
-
-## Load Docker image into kind cluster
-e2e-load:
-	@echo "Loading Docker image into kind cluster..."
-	kind load docker-image $(APP_NAME):latest --name $(CLUSTER_NAME)
-
-## Deploy Kubernetes manifests
-e2e-deploy:
-	@echo "Deploying Kubernetes manifests..."
-	kubectl apply -f $(E2E_MANIFESTS_DIR)/
-
-## Wait for services to be ready
-e2e-ready:
-	@echo "Waiting for services to be ready..."
+	kind load docker-image $(IMAGE_NAME):$(IMAGE_TAG) --name $(CLUSTER_NAME)
+	kubectl apply -f $(E2E_MANIFESTS)/
 	kubectl wait --for=condition=available deployment/$(APP_NAME) -n packetsorter --timeout=60s
 	kubectl wait --for=condition=available deployment/otel-collector -n packetsorter --timeout=60s
 	@echo ""
-	@echo "Services are running!"
 	@kubectl get pods -n packetsorter
-	@kubectl get svc -n packetsorter
-	@echo ""
 
-## Run e2e tests against ready services
-e2e-verify: e2e-ready
-	@echo "Running e2e tests against deployed service..."
-	@kubectl port-forward -n packetsorter svc/$(APP_NAME) 8080:8080 > /dev/null 2>&1 & \
-	APP_PORT_FORWARD_PID=$$!; \
-	kubectl port-forward -n packetsorter svc/otel-collector 8888:8888 > /dev/null 2>&1 & \
-	OTEL_PORT_FORWARD_PID=$$!; \
-	cleanup() { \
-		kill $$APP_PORT_FORWARD_PID 2>/dev/null || true; \
-		kill $$OTEL_PORT_FORWARD_PID 2>/dev/null || true; \
-	}; \
-	trap cleanup EXIT INT TERM; \
-	echo "Port-forward started for app (PID: $$APP_PORT_FORWARD_PID)"; \
-	echo "Port-forward started for collector (PID: $$OTEL_PORT_FORWARD_PID)"; \
+kind-down: ## Delete the kind cluster.
+	kind delete cluster --name $(CLUSTER_NAME) 2>/dev/null || true
+
+kind-test: kind-up ## Run e2e tests against kind and clean up automatically.
+	@kubectl port-forward -n packetsorter svc/$(APP_NAME) 8080:8080 >/dev/null 2>&1 & PF_PID=$$!; \
+	trap 'kill $$PF_PID 2>/dev/null; $(MAKE) -s kind-down' EXIT; \
 	sleep 3; \
-	cd test/e2e && TEST_BASE_URL=http://localhost:8080 TEST_OTELCOLLECTOR_URL=http://localhost:8888 go test -v . -timeout=120s
+	cd $(E2E_TEST_DIR) && TEST_BASE_URL=http://localhost:8080 go test -v . -timeout=120s
 
-## Run e2e tests directly (requires port-forward or local instance)
-## 
-## Use this to run tests against an already-running service.
-## For full e2e flow including cluster provisioning, use 'make e2e'
-e2e-test:
-	@echo "Running e2e tests..."
-	cd test/e2e && go test -v . -timeout=120s
+e2e: kind-test ## Compatibility alias for previous e2e target name.
 
-## Cleanup kind cluster
-e2e-cleanup:
-	@echo "Cleaning up kind cluster..."
-	kind delete cluster --name $(CLUSTER_NAME) || true
-	@echo "Cleanup complete"
+##@ Tooling
+weaver: $(WEAVER) ## Print local Weaver CLI version.
+	@$(WEAVER) --version
+
+$(WEAVER):
+	@mkdir -p $(TOOLS_DIR)
+	@OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+	ARCH=$$(uname -m); case $$ARCH in x86_64) ARCH="x86_64";; aarch64|arm64) ARCH="aarch64";; esac; \
+	case $$OS in darwin) TARGET="$$ARCH-apple-darwin";; linux) TARGET="$$ARCH-unknown-linux-gnu";; esac; \
+	curl -fsSL "https://github.com/open-telemetry/weaver/releases/download/v$(WEAVER_VERSION)/weaver-$$TARGET.tar.xz" | tar -xJ --strip-components=1 -C $(TOOLS_DIR)
+
+vendor-otel-templates: ## Vendor OTel Go registry templates from upstream.
+	@TMP=$$(mktemp -d) && \
+	git clone --depth 1 --filter=blob:none --sparse --branch $(OTEL_GO_REF) $(OTEL_GO_REPO) $$TMP/otel && \
+	git -C $$TMP/otel sparse-checkout set semconv/templates/registry/go && \
+	rm -rf $(OTEL_GO_VENDOR_DIR) && mkdir -p $(OTEL_GO_VENDOR_DIR)/semconv/templates/registry && \
+	cp -R $$TMP/otel/semconv/templates/registry/go $(OTEL_GO_VENDOR_DIR)/semconv/templates/registry/go && \
+	rm -rf $$TMP
+
+##@ Help
+help: ## Show this help.
+	@awk 'BEGIN {FS = ":.*##"; print "Usage: make <target>\n"} \
+	/^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-22s %s\n", $$1, $$2} \
+	/^##@/ {printf "\n%s\n", substr($$0, 5)}' $(MAKEFILE_LIST)
