@@ -32,17 +32,20 @@ A simple Go application demonstrating Prometheus instrumentation with schema-dri
 ### Using Make
 
 ```bash
-# Build
-make build
-
-# Run
+# Build and run
 make run
 
 # View metrics (while running)
 make metrics
 
-# Clean up
-make clean
+# Run e2e tests
+make test-e2e
+
+# Infer schema from telemetry
+make infer-schema
+
+# Validate telemetry against schema
+make live-check
 
 # See all available commands
 make help
@@ -102,14 +105,51 @@ uses a local default endpoint. To ship to a real backend, set:
 These env vars are read by the collector config in
 `test/e2e/manifests/otel-collector.yaml`.
 
-## Schema-Driven Demo Ideas
+## Schema Inference Demo
 
-Perfect for your KubeCon talk on Telemetry First:
+This project demonstrates schema-driven observability using OpenTelemetry Weaver for the KubeCon talk: **"Schema Inference and Automation: A New Era for Telemetry Management"**.
 
-1. **Add priority label**: Modify `parcels_total` to include `priority={high,medium,low}` → show dashboard breakage
-2. **Split outcome values**: Change `ok` to `accepted` → demonstrate backward compatibility
-3. **Enforce cardinality**: Prevent unbounded `reason` labels → show data quality enforcement
-4. **Migrate to OTel**: Port metrics while maintaining schema → show schema portability
+### Quick Demo
+
+```bash
+# Step 1: Infer schema from app telemetry
+make infer-schema
+
+# Step 2: Validate telemetry against schema (happy path)
+make live-check
+
+# Step 3: Break a metric and validate (show contract violation)
+# Edit internal/metrics/metrics.go, change a label name
+make live-check   # Should show validation errors
+```
+
+### Standalone Commands (for multi-terminal demo)
+
+```bash
+# Terminal 1: Run Weaver infer
+make run-weaver-infer
+
+# Terminal 2: Run OTel Collector
+make run-collector
+
+# Terminal 3: Run the app
+make run
+
+# Terminal 4: Run e2e tests
+make test-e2e
+```
+
+### Data Flow
+
+```
+App (:8080/metrics) → OTel Collector → Weaver (:4319) → registry/
+```
+
+### Demo Scenarios
+
+1. **Infer schema from legacy app**: Run `make infer-schema` to generate `registry/registry.yaml` from live telemetry
+2. **Contract testing**: Run `make live-check` to validate app telemetry matches the schema
+3. **Breaking change detection**: Modify a metric label, run `make live-check` to see validation failure
 
 ## Docker (Optional)
 
