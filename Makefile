@@ -204,9 +204,10 @@ infer-schema: build ## Infer schema from app telemetry (runs full pipeline).
 	@echo "=========================================="
 	@echo ""
 
-# Note: go_gc_duration_seconds is filtered out from violations because Prometheus Summary
-# metrics are not fully supported by OTel Collector's prometheusreceiver, so they don't
-# get inferred into the schema.
+# Note: The following metrics are filtered out from violations:
+# - go_gc_duration_seconds: Prometheus Summary not fully supported by OTel prometheusreceiver
+# - process_*: Go runtime metrics not relevant to app schema
+# - scrape_*: OTel Collector internal metrics
 live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
 		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
@@ -255,7 +256,7 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	echo ""; \
 	VIOLATIONS=$$($(CONTAINER_CLI) logs $(WEAVER_LIVE_CHECK_CONTAINER) 2>&1 | \
 		sed -n '/^{/,$$p' | \
-		jq -s '[.[] | select(.metric.live_check_result.all_advice[]?.level == "violation") | {name: .metric.name, message: .metric.live_check_result.all_advice[] | select(.level == "violation") | .message}] | unique | [.[] | select(.name != "go_gc_duration_seconds")]' 2>/dev/null || echo "[]"); \
+		jq -s '[.[] | select(.metric.live_check_result.all_advice[]?.advice_level == "violation") | {name: .metric.name, message: .metric.live_check_result.all_advice[] | select(.advice_level == "violation") | .message}] | unique | [.[] | select(.name | test("^(go_gc_duration|process_|scrape_)") | not)]' 2>/dev/null || echo "[]"); \
 	VIOLATION_COUNT=$$(echo "$$VIOLATIONS" | jq 'length'); \
 	if [ "$$VIOLATION_COUNT" = "0" ]; then \
 		echo "✓ No violations found - telemetry matches schema!"; \

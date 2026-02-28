@@ -44,35 +44,65 @@ groups:
     note: ''
     stability: development
     annotations: null
+- id: metric.go_goroutines
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_goroutines
+  instrument: gauge
+- id: metric.process_cpu_seconds_total
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: process_cpu_seconds_total
+  instrument: counter
 - id: metric.go_threads
   type: metric
   brief: ''
   stability: development
   metric_name: go_threads
   instrument: gauge
-- id: metric.go_memstats_other_sys_bytes
+- id: metric.process_max_fds
   type: metric
   brief: ''
   stability: development
-  metric_name: go_memstats_other_sys_bytes
+  metric_name: process_max_fds
   instrument: gauge
-- id: metric.go_memstats_heap_released_bytes
+- id: metric.go_memstats_heap_idle_bytes
   type: metric
   brief: ''
   stability: development
-  metric_name: go_memstats_heap_released_bytes
+  metric_name: go_memstats_heap_idle_bytes
   instrument: gauge
-- id: metric.process_virtual_memory_bytes
+- id: metric.go_memstats_alloc_bytes_total
   type: metric
   brief: ''
   stability: development
-  metric_name: process_virtual_memory_bytes
-  instrument: gauge
-- id: metric.promhttp_metric_handler_requests_in_flight
+  metric_name: go_memstats_alloc_bytes_total
+  instrument: counter
+- id: metric.stage_duration_seconds
   type: metric
   brief: ''
   stability: development
-  metric_name: promhttp_metric_handler_requests_in_flight
+  attributes:
+  - id: stage
+    type: string
+    brief: ''
+    examples:
+    - ingest
+    - process
+    - ship
+    requirement_level: recommended
+    note: ''
+    stability: development
+    annotations: null
+  metric_name: stage_duration_seconds
+  instrument: histogram
+- id: metric.go_memstats_buck_hash_sys_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_buck_hash_sys_bytes
   instrument: gauge
 - id: metric.promhttp_metric_handler_requests_total
   type: metric
@@ -92,59 +122,75 @@ groups:
     annotations: null
   metric_name: promhttp_metric_handler_requests_total
   instrument: counter
+- id: metric.scrape_duration_seconds
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: scrape_duration_seconds
+  instrument: gauge
+  unit: s
 - id: metric.process_virtual_memory_max_bytes
   type: metric
   brief: ''
   stability: development
   metric_name: process_virtual_memory_max_bytes
   instrument: gauge
-- id: metric.go_memstats_frees_total
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_frees_total
-  instrument: counter
 - id: metric.go_memstats_mallocs_total
   type: metric
   brief: ''
   stability: development
   metric_name: go_memstats_mallocs_total
   instrument: counter
-- id: metric.parcels_total
+- id: metric.scrape_samples_post_metric_relabeling
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: scrape_samples_post_metric_relabeling
+  instrument: gauge
+- id: metric.go_gc_gomemlimit_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_gc_gomemlimit_bytes
+  instrument: gauge
+- id: metric.go_memstats_next_gc_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_next_gc_bytes
+  instrument: gauge
+- id: metric.go_info
   type: metric
   brief: ''
   stability: development
   attributes:
-  - id: outcome
+  - id: version
     type: string
     brief: ''
-    examples:
-    - drop
-    - ok
-    - rework
-    - success
+    examples: go1.26.0
     requirement_level: recommended
     note: ''
     stability: development
     annotations: null
-  - id: stage
-    type: string
-    brief: ''
-    examples:
-    - process
-    - ingest
-    - ship
-    requirement_level: recommended
-    note: ''
-    stability: development
-    annotations: null
-  metric_name: parcels_total
-  instrument: counter
-- id: metric.process_resident_memory_bytes
+  metric_name: go_info
+  instrument: gauge
+- id: metric.promhttp_metric_handler_requests_in_flight
   type: metric
   brief: ''
   stability: development
-  metric_name: process_resident_memory_bytes
+  metric_name: promhttp_metric_handler_requests_in_flight
+  instrument: gauge
+- id: metric.go_gc_gogc_percent
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_gc_gogc_percent
+  instrument: gauge
+- id: metric.scrape_samples_scraped
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: scrape_samples_scraped
   instrument: gauge
 - id: metric.rework_reason_total
   type: metric
@@ -165,60 +211,11 @@ groups:
     annotations: null
   metric_name: rework_reason_total
   instrument: counter
-- id: metric.go_memstats_buck_hash_sys_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_buck_hash_sys_bytes
-  instrument: gauge
 - id: metric.process_open_fds
   type: metric
   brief: ''
   stability: development
   metric_name: process_open_fds
-  instrument: gauge
-- id: metric.go_memstats_alloc_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_alloc_bytes
-  instrument: gauge
-- id: metric.scrape_series_added
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: scrape_series_added
-  instrument: gauge
-- id: metric.go_memstats_heap_objects
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_heap_objects
-  instrument: gauge
-- id: metric.process_max_fds
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: process_max_fds
-  instrument: gauge
-- id: metric.scrape_duration_seconds
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: scrape_duration_seconds
-  instrument: gauge
-  unit: s
-- id: metric.go_memstats_alloc_bytes_total
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_alloc_bytes_total
-  instrument: counter
-- id: metric.go_memstats_stack_sys_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_stack_sys_bytes
   instrument: gauge
 - id: metric.go_memstats_heap_inuse_bytes
   type: metric
@@ -226,23 +223,41 @@ groups:
   stability: development
   metric_name: go_memstats_heap_inuse_bytes
   instrument: gauge
-- id: metric.go_memstats_next_gc_bytes
+- id: metric.go_memstats_other_sys_bytes
   type: metric
   brief: ''
   stability: development
-  metric_name: go_memstats_next_gc_bytes
+  metric_name: go_memstats_other_sys_bytes
   instrument: gauge
-- id: metric.process_cpu_seconds_total
+- id: metric.go_sched_gomaxprocs_threads
   type: metric
   brief: ''
   stability: development
-  metric_name: process_cpu_seconds_total
-  instrument: counter
-- id: metric.go_gc_gomemlimit_bytes
+  metric_name: go_sched_gomaxprocs_threads
+  instrument: gauge
+- id: metric.up
   type: metric
   brief: ''
   stability: development
-  metric_name: go_gc_gomemlimit_bytes
+  metric_name: up
+  instrument: gauge
+- id: metric.go_memstats_mcache_inuse_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_mcache_inuse_bytes
+  instrument: gauge
+- id: metric.go_memstats_last_gc_time_seconds
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_last_gc_time_seconds
+  instrument: gauge
+- id: metric.go_memstats_mcache_sys_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_mcache_sys_bytes
   instrument: gauge
 - id: metric.go_memstats_heap_sys_bytes
   type: metric
@@ -250,17 +265,100 @@ groups:
   stability: development
   metric_name: go_memstats_heap_sys_bytes
   instrument: gauge
+- id: metric.go_memstats_gc_sys_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_gc_sys_bytes
+  instrument: gauge
+- id: metric.process_resident_memory_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: process_resident_memory_bytes
+  instrument: gauge
+- id: metric.process_start_time_seconds
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: process_start_time_seconds
+  instrument: gauge
+- id: metric.go_memstats_mspan_inuse_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_mspan_inuse_bytes
+  instrument: gauge
+- id: metric.go_memstats_heap_objects
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_heap_objects
+  instrument: gauge
+- id: metric.go_memstats_frees_total
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_frees_total
+  instrument: counter
+- id: metric.scrape_series_added
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: scrape_series_added
+  instrument: gauge
+- id: metric.parcels_backlog
+  type: metric
+  brief: ''
+  stability: development
+  attributes:
+  - id: stage
+    type: string
+    brief: ''
+    examples:
+    - ingested
+    - ready_to_ship
+    requirement_level: recommended
+    note: ''
+    stability: development
+    annotations: null
+  metric_name: parcels_backlog
+  instrument: gauge
+- id: metric.go_memstats_alloc_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_alloc_bytes
+  instrument: gauge
 - id: metric.go_memstats_stack_inuse_bytes
   type: metric
   brief: ''
   stability: development
   metric_name: go_memstats_stack_inuse_bytes
   instrument: gauge
-- id: metric.go_goroutines
+- id: metric.go_memstats_stack_sys_bytes
   type: metric
   brief: ''
   stability: development
-  metric_name: go_goroutines
+  metric_name: go_memstats_stack_sys_bytes
+  instrument: gauge
+- id: metric.process_virtual_memory_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: process_virtual_memory_bytes
+  instrument: gauge
+- id: metric.go_memstats_heap_alloc_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_heap_alloc_bytes
+  instrument: gauge
+- id: metric.go_memstats_heap_released_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_heap_released_bytes
   instrument: gauge
 - id: metric.http_requests_total
   type: metric
@@ -303,52 +401,41 @@ groups:
     annotations: null
   metric_name: http_requests_total
   instrument: counter
-- id: metric.up
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: up
-  instrument: gauge
-- id: metric.go_sched_gomaxprocs_threads
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_sched_gomaxprocs_threads
-  instrument: gauge
-- id: metric.go_memstats_mspan_sys_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_mspan_sys_bytes
-  instrument: gauge
-- id: metric.go_memstats_last_gc_time_seconds
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_last_gc_time_seconds
-  instrument: gauge
-- id: metric.scrape_samples_scraped
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: scrape_samples_scraped
-  instrument: gauge
-- id: metric.parcels_backlog
+- id: metric.parcels_total
   type: metric
   brief: ''
   stability: development
   attributes:
-  - id: stage
+  - id: outcome
     type: string
     brief: ''
     examples:
-    - ingested
-    - ready_to_ship
+    - drop
+    - ok
+    - rework
+    - success
     requirement_level: recommended
     note: ''
     stability: development
     annotations: null
-  metric_name: parcels_backlog
+  - id: stage
+    type: string
+    brief: ''
+    examples:
+    - process
+    - ingest
+    - ship
+    requirement_level: recommended
+    note: ''
+    stability: development
+    annotations: null
+  metric_name: parcels_total
+  instrument: counter
+- id: metric.go_memstats_sys_bytes
+  type: metric
+  brief: ''
+  stability: development
+  metric_name: go_memstats_sys_bytes
   instrument: gauge
 - id: metric.http_request_duration_seconds
   type: metric
@@ -379,96 +466,9 @@ groups:
     annotations: null
   metric_name: http_request_duration_seconds
   instrument: histogram
-- id: metric.go_info
+- id: metric.go_memstats_mspan_sys_bytes
   type: metric
   brief: ''
   stability: development
-  attributes:
-  - id: version
-    type: string
-    brief: ''
-    examples: go1.26.0
-    requirement_level: recommended
-    note: ''
-    stability: development
-    annotations: null
-  metric_name: go_info
-  instrument: gauge
-- id: metric.stage_duration_seconds
-  type: metric
-  brief: ''
-  stability: development
-  attributes:
-  - id: stage
-    type: string
-    brief: ''
-    examples:
-    - ingest
-    - process
-    - ship
-    requirement_level: recommended
-    note: ''
-    stability: development
-    annotations: null
-  metric_name: stage_duration_seconds
-  instrument: histogram
-- id: metric.process_start_time_seconds
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: process_start_time_seconds
-  instrument: gauge
-- id: metric.go_memstats_mcache_sys_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_mcache_sys_bytes
-  instrument: gauge
-- id: metric.go_memstats_heap_idle_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_heap_idle_bytes
-  instrument: gauge
-- id: metric.go_memstats_mspan_inuse_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_mspan_inuse_bytes
-  instrument: gauge
-- id: metric.go_memstats_sys_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_sys_bytes
-  instrument: gauge
-- id: metric.go_memstats_mcache_inuse_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_mcache_inuse_bytes
-  instrument: gauge
-- id: metric.go_memstats_heap_alloc_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_heap_alloc_bytes
-  instrument: gauge
-- id: metric.go_memstats_gc_sys_bytes
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_memstats_gc_sys_bytes
-  instrument: gauge
-- id: metric.scrape_samples_post_metric_relabeling
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: scrape_samples_post_metric_relabeling
-  instrument: gauge
-- id: metric.go_gc_gogc_percent
-  type: metric
-  brief: ''
-  stability: development
-  metric_name: go_gc_gogc_percent
+  metric_name: go_memstats_mspan_sys_bytes
   instrument: gauge

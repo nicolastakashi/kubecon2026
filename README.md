@@ -126,17 +126,24 @@ make live-check   # Should show validation errors
 ### Standalone Commands (for multi-terminal demo)
 
 ```bash
+# Schema Inference Demo:
 # Terminal 1: Run Weaver infer
 make run-weaver-infer
 
-# Terminal 2: Run OTel Collector
+# Terminal 2: Run OTel Collector  
 make run-collector
 
 # Terminal 3: Run the app
 make run
 
-# Terminal 4: Run e2e tests
+# Terminal 4: Run e2e tests (generates telemetry)
 make test-e2e
+
+# Contract Testing Demo:
+# Terminal 1: Run Weaver live-check
+make run-weaver-live-check
+
+# Terminal 2-4: Same as above (collector, app, tests)
 ```
 
 ### Data Flow
@@ -149,7 +156,11 @@ App (:8080/metrics) → OTel Collector → Weaver (:4319) → registry/
 
 1. **Infer schema from legacy app**: Run `make infer-schema` to generate `registry/registry.yaml` from live telemetry
 2. **Contract testing**: Run `make live-check` to validate app telemetry matches the schema
-3. **Breaking change detection**: Modify a metric label, run `make live-check` to see validation failure
+3. **Breaking change detection**: Modify a metric name in `internal/metrics/metrics.go`, run `make live-check` to see:
+   ```
+   ✗ Found 1 violation(s):
+     - new_metric_name: Metric does not exist in the registry.
+   ```
 
 ## Docker (Optional)
 
