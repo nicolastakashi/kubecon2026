@@ -14,8 +14,6 @@ IMAGE_TAG ?= latest
 TOOLS_DIR := $(CURDIR)/tmp/bin
 WEAVER_VERSION ?= 0.21.2
 
-CLUSTER_NAME ?= packetsorter-e2e
-E2E_MANIFESTS ?= test/e2e/manifests
 E2E_TEST_DIR ?= test/e2e
 E2E_TEST_CMD := cd $(E2E_TEST_DIR) && go test -count=1 -v . -timeout=120s
 
@@ -43,7 +41,6 @@ OTEL_GO_VENDOR_DIR := templates/vendor/otel-go
 	run run-collector run-weaver-infer run-weaver-live-check metrics \
 	test test-e2e \
 	lint tidy \
-	kind-up kind-down kind-test e2e \
 	weaver vendor-otel-templates \
 	infer-schema live-check \
 	help
@@ -129,29 +126,6 @@ lint: ## Run formatters and linters.
 
 tidy: ## Ensure go.mod/go.sum are tidy.
 	go mod tidy
-
-##@ Kubernetes
-kind-up: image ## Create a fresh kind cluster and deploy app + collector.
-	@command -v kind >/dev/null || { echo "kind not installed"; exit 1; }
-	@kind get clusters | grep -q $(CLUSTER_NAME) && kind delete cluster --name $(CLUSTER_NAME) || true
-	kind create cluster --name $(CLUSTER_NAME)
-	kind load docker-image $(IMAGE_NAME):$(IMAGE_TAG) --name $(CLUSTER_NAME)
-	kubectl apply -f $(E2E_MANIFESTS)/
-	kubectl wait --for=condition=available deployment/$(APP_NAME) -n packetsorter --timeout=60s
-	kubectl wait --for=condition=available deployment/otel-collector -n packetsorter --timeout=60s
-	@echo ""
-	@kubectl get pods -n packetsorter
-
-kind-down: ## Delete the kind cluster.
-	kind delete cluster --name $(CLUSTER_NAME) 2>/dev/null || true
-
-kind-test: kind-up ## Run e2e tests against kind and clean up automatically.
-	@kubectl port-forward -n packetsorter svc/$(APP_NAME) 8080:8080 >/dev/null 2>&1 & PF_PID=$$!; \
-	trap 'kill $$PF_PID 2>/dev/null; $(MAKE) -s kind-down' EXIT; \
-	sleep 3; \
-	cd $(E2E_TEST_DIR) && TEST_BASE_URL=http://localhost:8080 go test -v . -timeout=120s
-
-e2e: kind-test ## Compatibility alias for previous e2e target name.
 
 ##@ Schema Inference
 infer-schema: build ## Infer schema from app telemetry (runs full pipeline).
@@ -260,23 +234,25 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	VIOLATION_COUNT=$$(echo "$$VIOLATIONS" | jq 'length'); \
 	if [ "$$VIOLATION_COUNT" = "0" ]; then \
 		echo "✓ No violations found - telemetry matches schema!"; \
+		EXIT_CODE=0; \
 	else \
 		echo "✗ Found $$VIOLATION_COUNT violation(s):"; \
 		echo ""; \
 		echo "$$VIOLATIONS" | jq -r '.[] | "  - \(.name): \(.message)"'; \
+		EXIT_CODE=1; \
 	fi; \
 	echo ""; \
 	curl -s -X POST http://localhost:$(WEAVER_LIVE_CHECK_ADMIN_PORT)/stop 2>/dev/null || true; \
 	sleep 2; \
-	kill $$APP_PID 2>/dev/null || true
-	@# Cleanup containers
-	@$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true
-	@$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
-	@echo ""
-	@echo "=========================================="
-	@echo "  Live-check validation complete!"
-	@echo "=========================================="
-	@echo ""
+	kill $$APP_PID 2>/dev/null || true; \
+	$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true; \
+	$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true; \
+	echo ""; \
+	echo "=========================================="; \
+	echo "  Live-check validation complete!"; \
+	echo "=========================================="; \
+	echo ""; \
+	exit $$EXIT_CODE
 
 ##@ Tooling
 weaver: $(WEAVER) ## Print local Weaver CLI version.
