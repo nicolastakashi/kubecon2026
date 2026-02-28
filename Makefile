@@ -112,8 +112,8 @@ metrics: ## Print metrics from a running local app.
 	@curl -fsS http://localhost:8080/metrics
 
 ##@ Test
-test: ## Run unit tests.
-	go test -race -short ./...
+test: ## Run unit tests (excludes e2e).
+	go test -short $$(go list ./... | grep -v /test/)
 
 test-e2e: ## Run e2e tests (assumes app is running on :8080).
 	@$(E2E_TEST_CMD)
