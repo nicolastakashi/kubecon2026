@@ -108,6 +108,7 @@ run-weaver-live-check: ## Run Weaver live-check (foreground).
 		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
 		$(WEAVER_IMAGE) registry live-check \
 			--registry /registry \
+			--quiet \
 			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT)
 
 metrics: ## Print metrics from a running local app.
@@ -203,6 +204,9 @@ infer-schema: build ## Infer schema from app telemetry (runs full pipeline).
 	@echo "=========================================="
 	@echo ""
 
+# Note: go_gc_duration_seconds is filtered out from violations because Prometheus Summary
+# metrics are not fully supported by OTel Collector's prometheusreceiver, so they don't
+# get inferred into the schema.
 live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
 		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
@@ -223,6 +227,7 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
 		$(WEAVER_IMAGE) registry live-check \
 			--registry /registry \
+			--format json \
 			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT) >/dev/null
 	@sleep 2
 	@# Start Collector in background
@@ -242,12 +247,23 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	$(E2E_TEST_CMD) || true; \
 	echo ""; \
 	echo "[5/5] Waiting for metrics to be validated..."; \
-	sleep 10; \
+	sleep 15; \
 	echo ""; \
 	echo "=========================================="; \
 	echo "  Live-Check Results"; \
 	echo "=========================================="; \
-	$(CONTAINER_CLI) logs $(WEAVER_LIVE_CHECK_CONTAINER) 2>&1 | tail -50; \
+	echo ""; \
+	VIOLATIONS=$$($(CONTAINER_CLI) logs $(WEAVER_LIVE_CHECK_CONTAINER) 2>&1 | \
+		sed -n '/^{/,$$p' | \
+		jq -s '[.[] | select(.metric.live_check_result.all_advice[]?.level == "violation") | {name: .metric.name, message: .metric.live_check_result.all_advice[] | select(.level == "violation") | .message}] | unique | [.[] | select(.name != "go_gc_duration_seconds")]' 2>/dev/null || echo "[]"); \
+	VIOLATION_COUNT=$$(echo "$$VIOLATIONS" | jq 'length'); \
+	if [ "$$VIOLATION_COUNT" = "0" ]; then \
+		echo "✓ No violations found - telemetry matches schema!"; \
+	else \
+		echo "✗ Found $$VIOLATION_COUNT violation(s):"; \
+		echo ""; \
+		echo "$$VIOLATIONS" | jq -r '.[] | "  - \(.name): \(.message)"'; \
+	fi; \
 	echo ""; \
 	curl -s -X POST http://localhost:$(WEAVER_LIVE_CHECK_ADMIN_PORT)/stop 2>/dev/null || true; \
 	sleep 2; \

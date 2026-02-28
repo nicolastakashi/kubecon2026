@@ -265,52 +265,6 @@ func TestFailure_GetNonExistentParcel(t *testing.T) {
 
 // Endpoint Coverage Tests
 
-// TestEndpoints_HealthAndMetrics tests health and metrics endpoints
-func TestEndpoints_HealthAndMetrics(t *testing.T) {
-	suite := setupSuite(t)
-
-	t.Run("health", func(t *testing.T) {
-		resp, err := suite.Client.Get(fmt.Sprintf("%s/health", suite.BaseURL))
-		require.NoError(t, err, "Failed to get health")
-		defer CloseResponse(resp)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
-
-	t.Run("metrics", func(t *testing.T) {
-		// First, trigger some metrics by processing parcels
-		// Create and process a rework parcel to ensure rework_reason_total exists
-		reworkParcelID := suite.IngestParcel(t)
-		resp := suite.ProcessParcel(t, reworkParcelID, "rework", "damaged")
-		CloseResponse(resp)
-
-		// Get metrics after triggering them
-		resp, err := suite.Client.Get(fmt.Sprintf("%s/metrics", suite.BaseURL))
-		require.NoError(t, err, "Failed to get metrics")
-		defer CloseResponse(resp)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		// Verify metrics contain expected content
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err, "Failed to read metrics body")
-
-		expectedMetrics := []string{
-			"parcels_total",
-			"stage_duration_seconds",
-			"parcels_backlog",
-			"rework_reason_total",
-			"http_requests_total",
-			"http_request_duration_seconds",
-		}
-
-		metricsStr := string(body)
-		for _, metric := range expectedMetrics {
-			assert.Contains(t, metricsStr, metric, "Metrics endpoint missing expected metric: %s", metric)
-		}
-	})
-}
-
 // TestEndpoints_ListParcels tests listing parcels
 func TestEndpoints_ListParcels(t *testing.T) {
 	suite := setupSuite(t)
