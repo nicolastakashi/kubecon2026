@@ -42,7 +42,7 @@ OTEL_GO_VENDOR_DIR := templates/vendor/otel-go
 	test test-e2e \
 	lint tidy \
 	weaver vendor-otel-templates \
-	infer-schema live-check \
+	infer-schema live-check generate \
 	help
 
 ##@ Build
@@ -253,6 +253,39 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	echo "=========================================="; \
 	echo ""; \
 	exit $$EXIT_CODE
+
+GENERATE_OUTPUT_DIR ?= generated
+GENERATE_TEMPLATES_DIR ?= templates/vendor/otel-go/semconv/templates/registry
+
+generate: ## Generate OTel SDK metrics code from registry.
+	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
+		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
+		echo "Run 'make infer-schema' first."; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "=========================================="
+	@echo "  Generating Code from Registry"
+	@echo "=========================================="
+	@echo ""
+	@rm -rf $(GENERATE_OUTPUT_DIR)
+	@mkdir -p $(GENERATE_OUTPUT_DIR)
+	@$(CONTAINER_CLI) run --rm \
+		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
+		-v $(PWD)/$(GENERATE_TEMPLATES_DIR):/templates:ro \
+		-v $(PWD)/$(GENERATE_OUTPUT_DIR):/output \
+		$(WEAVER_IMAGE) registry generate \
+			--registry /registry \
+			--templates /templates \
+			--skip-policies \
+			go /output
+	@echo ""
+	@echo "=========================================="
+	@echo "  Code generated successfully!"
+	@echo "  Output: $(GENERATE_OUTPUT_DIR)/"
+	@echo "=========================================="
+	@echo ""
+	@find $(GENERATE_OUTPUT_DIR) -type f -name "*.go" | head -10
 
 ##@ Tooling
 weaver: $(WEAVER) ## Print local Weaver CLI version.
