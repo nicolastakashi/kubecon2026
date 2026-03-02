@@ -42,6 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [lint, test]
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v6
 
@@ -51,4 +54,59 @@ jobs:
           cache: true
 
       - name: Run E2E and contract tests
-        run: make live-check
+        id: contract
+        run: |
+          set +e
+          OUTPUT=$(make live-check 2>&1)
+          EXIT_CODE=$?
+          echo "$OUTPUT"
+          
+          # Extract just the results section
+          RESULTS=$(echo "$OUTPUT" | sed -n '/Live-Check Results/,/Live-check validation complete/p')
+          
+          # Save for PR comment
+          {
+            echo 'results<<EOF'
+            echo "$RESULTS"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+          
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          exit $EXIT_CODE
+
+      - name: Comment on PR (violations found)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const results = `${{ steps.contract.outputs.results }}`;
+            const body = `## ❌ Contract Test Failed
+            
+            \`\`\`
+            ${results}
+            \`\`\`
+            
+            ### How to fix
+            1. Run \`make live-check\` locally to reproduce
+            2. Either fix the metric name to match the schema, or
+            3. Run \`make infer-schema\` to update the schema (if this is an intentional change)
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Comment on PR (all passed)
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## ✅ Contract Test Passed\n\nTelemetry matches the schema!'
+            });

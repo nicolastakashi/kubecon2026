@@ -1,3 +1,0 @@
-source_repo=https://github.com/open-telemetry/opentelemetry-go
-source_path=semconv/templates/registry/go
-source_commit=248da958375e4dfb4a1105645107be3ef04b1c59
