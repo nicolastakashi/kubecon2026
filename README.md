@@ -88,13 +88,18 @@ make test-e2e
 
 # Run contract tests (validates telemetry against schema)
 make live-check
+
+# Compare current telemetry against committed schema
+make schema-diff
 ```
 
-CI runs both e2e and contract tests automatically on push/PR.
+CI runs both e2e and contract tests automatically on push/PR. Contract test failures post a comment on the PR with violations and fix instructions.
 
 ## Schema Inference Demo
 
 This project demonstrates schema-driven observability using OpenTelemetry Weaver for the KubeCon talk: **"Schema Inference and Automation: A New Era for Telemetry Management"**.
+
+For the full demo script, see **[DEMO.md](DEMO.md)**.
 
 ### Quick Demo
 
@@ -108,6 +113,9 @@ make live-check
 # Step 3: Break a metric and validate (show contract violation)
 # Edit internal/metrics/metrics.go, change a label name
 make live-check   # Should show validation errors
+
+# Step 4: Generate OTel SDK code from schema
+make generate
 ```
 
 ### Standalone Commands (for multi-terminal demo)
@@ -148,6 +156,8 @@ App (:8080/metrics) → OTel Collector → Weaver (:4319) → registry/
    ✗ Found 1 violation(s):
      - new_metric_name: Metric does not exist in the registry.
    ```
+4. **Code generation**: Run `make generate` to produce OTel SDK instrumentation code in `generated/metrics.go`
+5. **Schema diff**: Run `make schema-diff` to compare current telemetry against the committed schema
 
 ## Docker (Optional)
 
@@ -160,22 +170,3 @@ docker run -p 8080:8080 packetsorter
 ```
 
 This app is ~250 lines of Go with rich telemetry surface - perfect for demonstrating schema-driven observability!
-
-## Vendored OTel Templates
-
-This repo vendors the OpenTelemetry community Go registry templates under:
-
-- `templates/vendor/otel-go/semconv/templates/registry/go`
-- `templates/vendor/otel-go/VENDOR_METADATA`
-
-Refresh to the latest upstream ref with:
-
-```bash
-make vendor-otel-templates
-```
-
-Pin to a specific tag or commit with:
-
-```bash
-make vendor-otel-templates OTEL_GO_REF=v1.38.0
-```

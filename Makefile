@@ -33,16 +33,13 @@ WEAVER_LIVE_CHECK_PORT ?= 4319
 WEAVER_LIVE_CHECK_ADMIN_PORT ?= 4321
 
 WEAVER := $(TOOLS_DIR)/weaver
-OTEL_GO_REPO := https://github.com/open-telemetry/opentelemetry-go.git
-OTEL_GO_REF ?= main
-OTEL_GO_VENDOR_DIR := templates/vendor/otel-go
 
 .PHONY: all build image clean \
 	run run-collector run-weaver-infer run-weaver-live-check metrics \
 	test test-e2e \
 	lint tidy \
-	weaver vendor-otel-templates \
-	infer-schema live-check generate \
+	weaver \
+	infer-schema live-check generate schema-diff \
 	help
 
 ##@ Build
@@ -255,9 +252,9 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	exit $$EXIT_CODE
 
 GENERATE_OUTPUT_DIR ?= generated
-GENERATE_TEMPLATES_DIR ?= templates/vendor/otel-go/semconv/templates/registry
+GENERATE_TEMPLATES_DIR ?= templates/otel
 
-generate: ## Generate OTel SDK metrics code from registry.
+generate: ## Generate OTel SDK metrics.go from registry.
 	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
 		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
 		echo "Run 'make infer-schema' first."; \
@@ -265,10 +262,9 @@ generate: ## Generate OTel SDK metrics code from registry.
 	fi
 	@echo ""
 	@echo "=========================================="
-	@echo "  Generating Code from Registry"
+	@echo "  Generating OTel SDK metrics.go"
 	@echo "=========================================="
 	@echo ""
-	@rm -rf $(GENERATE_OUTPUT_DIR)
 	@mkdir -p $(GENERATE_OUTPUT_DIR)
 	@$(CONTAINER_CLI) run --rm \
 		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
@@ -278,14 +274,40 @@ generate: ## Generate OTel SDK metrics code from registry.
 			--registry /registry \
 			--templates /templates \
 			--skip-policies \
-			go /output
+			. /output
 	@echo ""
 	@echo "=========================================="
-	@echo "  Code generated successfully!"
-	@echo "  Output: $(GENERATE_OUTPUT_DIR)/"
+	@echo "  Generated: $(GENERATE_OUTPUT_DIR)/metrics.go"
 	@echo "=========================================="
 	@echo ""
-	@find $(GENERATE_OUTPUT_DIR) -type f -name "*.go" | head -10
+	@cat $(GENERATE_OUTPUT_DIR)/metrics.go
+
+SCHEMA_BASELINE ?= registry/registry.yaml
+
+schema-diff: build ## Show schema changes between baseline and current telemetry.
+	@if [ ! -f "$(SCHEMA_BASELINE)" ]; then \
+		echo "Error: No baseline schema found at $(SCHEMA_BASELINE)"; \
+		echo "Run 'make infer-schema' first to create a baseline."; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "=========================================="
+	@echo "  Schema Diff: Baseline vs Current"
+	@echo "=========================================="
+	@echo ""
+	@# Backup current schema
+	@cp -r $(WEAVER_OUTPUT_DIR) $(WEAVER_OUTPUT_DIR).baseline 2>/dev/null || true
+	@# Infer fresh schema to tmp location
+	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory 2>/dev/null
+	@# Compare
+	@echo ""
+	@echo "Changes detected:"
+	@echo ""
+	@diff -u $(WEAVER_OUTPUT_DIR)/registry.yaml registry.new/registry.yaml || true
+	@# Cleanup
+	@rm -rf registry.new
+	@rm -rf $(WEAVER_OUTPUT_DIR).baseline 2>/dev/null || true
+	@echo ""
 
 ##@ Tooling
 weaver: $(WEAVER) ## Print local Weaver CLI version.
@@ -297,14 +319,6 @@ $(WEAVER):
 	ARCH=$$(uname -m); case $$ARCH in x86_64) ARCH="x86_64";; aarch64|arm64) ARCH="aarch64";; esac; \
 	case $$OS in darwin) TARGET="$$ARCH-apple-darwin";; linux) TARGET="$$ARCH-unknown-linux-gnu";; esac; \
 	curl -fsSL "https://github.com/open-telemetry/weaver/releases/download/v$(WEAVER_VERSION)/weaver-$$TARGET.tar.xz" | tar -xJ --strip-components=1 -C $(TOOLS_DIR)
-
-vendor-otel-templates: ## Vendor OTel Go registry templates from upstream.
-	@TMP=$$(mktemp -d) && \
-	git clone --depth 1 --filter=blob:none --sparse --branch $(OTEL_GO_REF) $(OTEL_GO_REPO) $$TMP/otel && \
-	git -C $$TMP/otel sparse-checkout set semconv/templates/registry/go && \
-	rm -rf $(OTEL_GO_VENDOR_DIR) && mkdir -p $(OTEL_GO_VENDOR_DIR)/semconv/templates/registry && \
-	cp -R $$TMP/otel/semconv/templates/registry/go $(OTEL_GO_VENDOR_DIR)/semconv/templates/registry/go && \
-	rm -rf $$TMP
 
 ##@ Help
 help: ## Show this help.

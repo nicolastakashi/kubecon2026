@@ -1,0 +1,26 @@
+params:
+  package_name: metrics
+  # Filter to only include app-specific metrics (exclude go_*, process_*, scrape_*, promhttp_*)
+  app_metrics_only: true
+
+templates:
+  - template: metrics.go.j2
+    application_mode: single
+    file_name: "metrics.go"
+
+acronyms: [HTTP, API, ID, URL, TLS]
+
+comment_formats:
+  go:
+    format: markdown
+    prefix: "// "
+    trim: true
+
+default_comment_format: go
+
+text_maps:
+  otel_instrument:
+    counter: Int64Counter
+    histogram: Float64Histogram
+    updowncounter: Int64UpDownCounter
+    gauge: Float64Gauge
