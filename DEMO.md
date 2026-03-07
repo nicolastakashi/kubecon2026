@@ -15,34 +15,41 @@ docker rm -f weaver-infer weaver-live-check otel-collector-local 2>/dev/null || 
 
 # Verify registry exists (or generate it)
 ls registry/registry.yaml || make infer-schema
+
+# Re-generate the migration SDKs from the committed schema
+make generate
 ```
 
 ---
 
 ## Demo Flow
 
-### Act 1: The Problem (Legacy Telemetry)
+### Act 1: The Baseline (Legacy Telemetry)
 
-**Talking Point:** "Here's a typical Go app with Prometheus metrics. The metrics were added ad-hoc over time, no formal schema."
+**Talking Point:** "Here is the baseline: handwritten Prometheus instrumentation. The key question is how to migrate that implementation without breaking the telemetry contract."
 
 ```bash
-# Show the current metrics implementation
-cat internal/metrics/metrics.go
+# Show the handwritten baseline
+sed -n '1,220p' internal/metrics/metrics.go
+
+# Show the runtime mode switch
+sed -n '1,200p' cmd/packetsorter/main.go
 ```
 
 **Key points to highlight:**
-- Manual metric definitions
-- No schema validation
-- Easy to make typos or inconsistencies
+- `manual-prom` is the legacy implementation
+- `generated-prom` and `generated-otel` are migration targets
+- the stable contract is `registry/registry.yaml`
 
 ---
 
 ### Act 2: Schema Inference
 
-**Talking Point:** "Weaver can infer a schema from live telemetry. Let's extract what we actually emit."
+**Talking Point:** "Weaver can infer a schema from live telemetry. That gives us the compatibility contract that every implementation has to respect."
 
 ```bash
 make infer-schema
+head -100 registry/registry.yaml
 ```
 
 **Expected output:**
@@ -61,122 +68,153 @@ make infer-schema
 ==========================================
 ```
 
-**Then show the generated schema:**
+---
+
+### Act 3: Migration 1 (Manual Prom -> Generated Prom)
+
+**Talking Point:** "The first migration swaps handwritten Prometheus metrics for generated Prometheus collectors, but preserves the emitted schema."
+
 ```bash
-head -100 registry/registry.yaml
+INSTRUMENTATION_MODE=manual-prom make live-check
+INSTRUMENTATION_MODE=generated-prom make live-check
 ```
+
+**What to highlight:**
+- both modes pass against the same committed schema
+- the app code uses one semantic instrumentation facade
+- `generated/prom/metrics.go` is derived from the schema, not handwritten
 
 ---
 
-### Act 3: Contract Testing (Happy Path)
+### Act 4: Migration 2 (Generated Prom -> Generated OTel)
 
-**Talking Point:** "Now we have a schema. Let's validate that our app's telemetry matches it."
+**Talking Point:** "The second migration changes telemetry SDKs entirely. We switch from Prometheus collectors to generated OpenTelemetry instruments, but still expose the same contract."
 
 ```bash
-make live-check
+INSTRUMENTATION_MODE=generated-otel make live-check
+```
+
+**What to highlight:**
+- `generated/otel/metrics.go` comes from the same schema
+- the collector and live-check workflow stay the same
+- we changed implementation technology without changing observability behavior
+
+---
+
+### Act 5: Show All Modes Passing
+
+**Talking Point:** "Here is the whole compatibility proof in one command."
+
+```bash
+make live-check-all
 ```
 
 **Expected output:**
-```
+```text
 ==========================================
-  Live-Check Results
+  Live-check mode: manual-prom
 ==========================================
-
+...
 ✓ No violations found - telemetry matches schema!
 
 ==========================================
-  Live-check validation complete!
+  Live-check mode: generated-prom
 ==========================================
+...
+✓ No violations found - telemetry matches schema!
+
+==========================================
+  Live-check mode: generated-otel
+==========================================
+...
+✓ No violations found - telemetry matches schema!
 ```
 
 ---
 
-### Act 4: Breaking the Contract (The Demo!)
+### Act 6: Breaking the Contract
 
-**Talking Point:** "What happens when someone changes a metric name? Let's simulate a breaking change."
+**Talking Point:** "Now let’s break one migration mode on purpose. The contract test should catch the drift immediately."
 
 ```bash
-# Edit the metrics file - rename parcels_total to packages_total
-sed -i.bak 's/parcels_total/packages_total/g' internal/metrics/metrics.go
-
-# Show the change
-grep -n "packages_total" internal/metrics/metrics.go
-```
-
-**Now run contract tests:**
-```bash
-make live-check
+# Example: rename a metric or label in one implementation
+INSTRUMENTATION_MODE=generated-prom make live-check
 ```
 
 **Expected output:**
-```
+```text
 ==========================================
   Live-Check Results
 ==========================================
 
 ✗ Found 1 violation(s):
 
-  - packages_total: Metric does not exist in the registry.
+  - <metric-or-label>: <violation message>
 
 ==========================================
   Live-check validation complete!
 ==========================================
 ```
 
-**Talking Point:** "The contract test caught the breaking change! In CI, this would fail the PR."
+**What to highlight:**
+- the app still runs
+- the migration still compiles
+- the contract test is what prevents silent observability regressions
 
-**Restore the original:**
+---
+
+### Act 7: Fix the Migration
+
+**Talking Point:** "Now restore schema compatibility and re-run the same command. The migration is safe once the contract passes again."
+
 ```bash
-mv internal/metrics/metrics.go.bak internal/metrics/metrics.go
+INSTRUMENTATION_MODE=generated-prom make live-check
 ```
 
 ---
 
-### Act 5: Code Generation
+### Act 8: Code Generation
 
-**Talking Point:** "We can also generate type-safe instrumentation code from the schema."
+**Talking Point:** "Both migration targets are code-generated from the same committed contract."
 
 ```bash
 make generate
-```
-
-**Show the generated code:**
-```bash
-cat generated/metrics.go
+sed -n '1,220p' generated/prom/metrics.go
+sed -n '1,220p' generated/otel/metrics.go
 ```
 
 **Key points to highlight:**
-- Single file, clean structure
-- Type-safe attribute helpers (`AttrStage`, `AttrOutcome`)
-- OTel SDK ready
-- No manual metric definitions needed
+- same schema, two generated SDKs
+- the business logic does not need to know which backend is active
+- this makes migration repeatable and reviewable
 
 ---
 
-### Act 6: CI Integration
+### Act 9: CI / PR Integration
 
-**Talking Point:** "This all runs in CI. Every PR gets contract tested."
+**Talking Point:** "This is not just a local trick. Every PR gets a telemetry migration report."
 
-Show the GitHub Actions workflow:
 ```bash
-cat .github/workflows/ci.yml
+sed -n '1,260p' .github/workflows/ci.yml
 ```
 
-**Or show a PR with:**
-- Contract test passing (green check)
-- Contract test failing (PR comment with violations)
+**PR flow to show:**
+- First commit intentionally breaks one migration mode
+- GitHub shows the normal code diff in the PR
+- The sticky PR comment shows per-mode `live-check` results and a schema diff excerpt
+- The follow-up fix commit updates the same PR
+- The sticky comment refreshes and the checks turn green
 
 ---
 
-### Bonus: Schema Diff
+### Bonus: Local Schema Diff
 
-**Talking Point:** "What if you want to see what changed before committing?"
+**Talking Point:** "You can inspect schema drift locally before opening the PR."
 
 ```bash
 make schema-diff
+make schema-diff-report
 ```
-
-This re-infers the schema and shows a diff against the committed baseline.
 
 ---
 
@@ -185,9 +223,10 @@ This re-infers the schema and shows a diff against the committed baseline.
 | Action | Command |
 |--------|---------|
 | Infer schema | `make infer-schema` |
-| Validate telemetry | `make live-check` |
-| Generate code | `make generate` |
-| Compare schemas | `make schema-diff` |
+| Validate one mode | `INSTRUMENTATION_MODE=<mode> make live-check` |
+| Validate all modes | `make live-check-all` |
+| Generate both SDKs | `make generate` |
+| Compare schemas | `make schema-diff` / `make schema-diff-report` |
 | Run all tests | `make test` |
 | Clean up | `make clean` |
 
@@ -205,7 +244,12 @@ docker rm -f weaver-infer weaver-live-check otel-collector-local
 make infer-schema
 ```
 
-**Reset metrics after demo:**
+**Regenerate the migration SDKs:**
 ```bash
-git checkout internal/metrics/metrics.go
+make generate
+```
+
+**Reset to baseline mode:**
+```bash
+unset INSTRUMENTATION_MODE
 ```
