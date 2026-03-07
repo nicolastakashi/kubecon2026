@@ -8,19 +8,27 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/nicolastakashi/kubecon2026/internal/metrics"
+	"github.com/nicolastakashi/kubecon2026/internal/instrumentation"
 	"github.com/nicolastakashi/kubecon2026/internal/models"
 )
 
 type Handler struct {
 	db            *sql.DB
+	metrics       instrumentation.Provider
 	UpdateBacklog func()
 }
 
-func New(db *sql.DB, updateBacklog func()) *Handler {
+func New(db *sql.DB, metrics instrumentation.Provider, updateBacklog func()) *Handler {
 	return &Handler{
 		db:            db,
+		metrics:       metrics,
 		UpdateBacklog: updateBacklog,
+	}
+}
+
+func writeJSON(w http.ResponseWriter, payload interface{}) {
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 	}
 }
 
@@ -36,9 +44,7 @@ func (h *Handler) IngestParcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	duration := time.Since(start).Seconds()
-	metrics.StageDuration.WithLabelValues("ingest").Observe(duration)
-	metrics.ParcelsTotal.WithLabelValues("ingest", "success").Inc()
+	h.metrics.RecordIngest(time.Since(start))
 	h.UpdateBacklog()
 
 	response := map[string]interface{}{
@@ -49,7 +55,7 @@ func (h *Handler) IngestParcel(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, response)
 }
 
 func (h *Handler) ProcessParcel(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +70,7 @@ func (h *Handler) ProcessParcel(w http.ResponseWriter, r *http.Request) {
 
 	validOutcomes := map[string]bool{"ok": true, "rework": true, "drop": true}
 	if !validOutcomes[req.Outcome] {
-		http.Error(w, fmt.Sprintf("Invalid outcome. Must be one of: ok, rework, drop"), http.StatusBadRequest)
+		http.Error(w, "Invalid outcome. Must be one of: ok, rework, drop", http.StatusBadRequest)
 		return
 	}
 
@@ -89,12 +95,10 @@ func (h *Handler) ProcessParcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	duration := time.Since(start).Seconds()
-	metrics.StageDuration.WithLabelValues("process").Observe(duration)
-	metrics.ParcelsTotal.WithLabelValues("process", req.Outcome).Inc()
+	h.metrics.RecordProcess(req.Outcome, time.Since(start))
 
 	if req.Outcome == "rework" && req.Reason != "" {
-		metrics.ReworkReasonTotal.WithLabelValues(req.Reason).Inc()
+		h.metrics.RecordReworkReason(req.Reason)
 	}
 
 	h.UpdateBacklog()
@@ -107,7 +111,7 @@ func (h *Handler) ProcessParcel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, response)
 }
 
 func (h *Handler) ShipParcel(w http.ResponseWriter, r *http.Request) {
@@ -135,9 +139,7 @@ func (h *Handler) ShipParcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	duration := time.Since(start).Seconds()
-	metrics.StageDuration.WithLabelValues("ship").Observe(duration)
-	metrics.ParcelsTotal.WithLabelValues("ship", "success").Inc()
+	h.metrics.RecordShip(time.Since(start))
 	h.UpdateBacklog()
 
 	response := map[string]interface{}{
@@ -147,7 +149,7 @@ func (h *Handler) ShipParcel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, response)
 }
 
 func (h *Handler) GetParcel(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +180,7 @@ func (h *Handler) GetParcel(w http.ResponseWriter, r *http.Request) {
 	parcel.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(parcel)
+	writeJSON(w, parcel)
 }
 
 func (h *Handler) ListParcels(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +190,9 @@ func (h *Handler) ListParcels(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to list parcels: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var parcels []models.Parcel
 	for rows.Next() {
@@ -207,5 +211,5 @@ func (h *Handler) ListParcels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(parcels)
+	writeJSON(w, parcels)
 }

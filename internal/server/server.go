@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -9,27 +11,34 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/nicolastakashi/kubecon2026/internal/db"
 	"github.com/nicolastakashi/kubecon2026/internal/handlers"
-	"github.com/nicolastakashi/kubecon2026/internal/metrics"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/nicolastakashi/kubecon2026/internal/instrumentation"
 )
 
 type Server struct {
 	db      *db.DB
 	handler *handlers.Handler
+	metrics instrumentation.Provider
 	router  *mux.Router
 }
 
-func New(dbPath string) (*Server, error) {
+func New(dbPath string, mode instrumentation.Mode) (*Server, error) {
 	database, err := db.New(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	s := &Server{
-		db: database,
+	metricsProvider, err := instrumentation.New(mode)
+	if err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("failed to create instrumentation provider: %w", err)
 	}
 
-	s.handler = handlers.New(database.Conn(), s.updateBacklogGauge)
+	s := &Server{
+		db:      database,
+		metrics: metricsProvider,
+	}
+
+	s.handler = handlers.New(database.Conn(), metricsProvider, s.updateBacklogGauge)
 	s.setupRouter()
 	s.updateBacklogGauge()
 
@@ -48,10 +57,12 @@ func (s *Server) setupRouter() {
 	api.HandleFunc("/parcels/{id}", s.handler.GetParcel).Methods("GET")
 	api.HandleFunc("/parcels", s.handler.ListParcels).Methods("GET")
 
-	r.Handle("/metrics", promhttp.Handler()).Methods("GET")
+	r.Handle("/metrics", s.metrics.Handler()).Methods("GET")
 
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"status": "healthy"}); err != nil {
+			http.Error(w, fmt.Sprintf("failed to encode health response: %v", err), http.StatusInternalServerError)
+		}
 	}).Methods("GET")
 
 	s.router = r
@@ -68,9 +79,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(wrapped, r)
 
-		duration := time.Since(start).Seconds()
-		metrics.HTTPRequestDuration.WithLabelValues(r.Method, path).Observe(duration)
-		metrics.HTTPRequestsTotal.WithLabelValues(r.Method, path, fmt.Sprintf("%d", wrapped.statusCode)).Inc()
+		s.metrics.RecordHTTPRequest(r.Method, path, wrapped.statusCode, time.Since(start))
 	})
 }
 
@@ -90,8 +99,7 @@ func (s *Server) updateBacklogGauge() {
 		return
 	}
 
-	metrics.BacklogGauge.WithLabelValues("ingested").Set(float64(ingested))
-	metrics.BacklogGauge.WithLabelValues("ready_to_ship").Set(float64(readyToShip))
+	s.metrics.SetBacklog(ingested, readyToShip)
 }
 
 func (s *Server) Router() *mux.Router {
@@ -99,5 +107,8 @@ func (s *Server) Router() *mux.Router {
 }
 
 func (s *Server) Close() error {
-	return s.db.Close()
+	return errors.Join(
+		s.metrics.Shutdown(context.Background()),
+		s.db.Close(),
+	)
 }
