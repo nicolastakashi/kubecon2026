@@ -39,40 +39,45 @@ func TestProvidersExposeCompatibleMetrics(t *testing.T) {
 		regexp.MustCompile(`http_request_duration_seconds_(bucket|count|sum)`),
 	}
 
-	provider, err := New(ModeManualProm)
-	if err != nil {
-		t.Fatalf("New(%q) error = %v", ModeManualProm, err)
-	}
-	defer func() {
-		if err := provider.Shutdown(context.Background()); err != nil {
-			t.Fatalf("Shutdown() error = %v", err)
-		}
-	}()
+	tests := []Mode{ModeManualProm, ModeGeneratedProm}
+	for _, mode := range tests {
+		t.Run(string(mode), func(t *testing.T) {
+			provider, err := New(mode)
+			if err != nil {
+				t.Fatalf("New(%q) error = %v", mode, err)
+			}
+			defer func() {
+				if err := provider.Shutdown(context.Background()); err != nil {
+					t.Fatalf("Shutdown() error = %v", err)
+				}
+			}()
 
-	provider.RecordIngest(15 * time.Millisecond)
-	provider.RecordProcess("rework", 20*time.Millisecond)
-	provider.RecordReworkReason("damaged")
-	provider.RecordShip(25 * time.Millisecond)
-	provider.SetBacklog(2, 1)
-	provider.RecordHTTPRequest("POST", "/api/parcels", http.StatusCreated, 30*time.Millisecond)
+			provider.RecordIngest(15 * time.Millisecond)
+			provider.RecordProcess("rework", 20*time.Millisecond)
+			provider.RecordReworkReason("damaged")
+			provider.RecordShip(25 * time.Millisecond)
+			provider.SetBacklog(2, 1)
+			provider.RecordHTTPRequest("POST", "/api/parcels", http.StatusCreated, 30*time.Millisecond)
 
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	rec := httptest.NewRecorder()
-	provider.Handler().ServeHTTP(rec, req)
+			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			rec := httptest.NewRecorder()
+			provider.Handler().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("metrics handler status = %d, want %d", rec.Code, http.StatusOK)
-	}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("metrics handler status = %d, want %d", rec.Code, http.StatusOK)
+			}
 
-	body, err := io.ReadAll(rec.Result().Body)
-	if err != nil {
-		t.Fatalf("ReadAll() error = %v", err)
-	}
+			body, err := io.ReadAll(rec.Result().Body)
+			if err != nil {
+				t.Fatalf("ReadAll() error = %v", err)
+			}
 
-	metricsText := string(body)
-	for _, pattern := range patterns {
-		if !pattern.MatchString(metricsText) {
-			t.Fatalf("metrics output missing pattern %q\n%s", pattern.String(), metricsText)
-		}
+			metricsText := string(body)
+			for _, pattern := range patterns {
+				if !pattern.MatchString(metricsText) {
+					t.Fatalf("metrics output missing pattern %q\n%s", pattern.String(), metricsText)
+				}
+			}
+		})
 	}
 }
