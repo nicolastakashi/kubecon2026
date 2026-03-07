@@ -39,7 +39,7 @@ func TestProvidersExposeCompatibleMetrics(t *testing.T) {
 		regexp.MustCompile(`http_request_duration_seconds_(bucket|count|sum)`),
 	}
 
-	tests := []Mode{ModeManualProm, ModeGeneratedProm}
+	tests := []Mode{ModeManualProm, ModeGeneratedProm, ModeGeneratedOTel}
 	for _, mode := range tests {
 		t.Run(string(mode), func(t *testing.T) {
 			provider, err := New(mode)

@@ -13,6 +13,7 @@ type Mode string
 const (
 	ModeManualProm    Mode = "manual-prom"
 	ModeGeneratedProm Mode = "generated-prom"
+	ModeGeneratedOTel Mode = "generated-otel"
 )
 
 type Provider interface {
@@ -40,6 +41,8 @@ func New(mode Mode) (Provider, error) {
 		return newManualPromProvider()
 	case ModeGeneratedProm:
 		return newGeneratedPromProvider()
+	case ModeGeneratedOTel:
+		return newGeneratedOTelProvider()
 	default:
 		return nil, fmt.Errorf("unsupported instrumentation mode %q", mode)
 	}
