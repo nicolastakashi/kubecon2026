@@ -304,7 +304,7 @@ func TestEndpoints_GetParcel(t *testing.T) {
 		if resp != nil {
 			body, _ := io.ReadAll(resp.Body)
 			t.Logf("Attempt %d: Status %d, Body: %s", i+1, resp.StatusCode, string(body))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
