@@ -11,7 +11,8 @@ import (
 type Mode string
 
 const (
-	ModeManualProm Mode = "manual-prom"
+	ModeManualProm    Mode = "manual-prom"
+	ModeGeneratedProm Mode = "generated-prom"
 )
 
 type Provider interface {
@@ -37,6 +38,8 @@ func New(mode Mode) (Provider, error) {
 	switch mode {
 	case ModeManualProm:
 		return newManualPromProvider()
+	case ModeGeneratedProm:
+		return newGeneratedPromProvider()
 	default:
 		return nil, fmt.Errorf("unsupported instrumentation mode %q", mode)
 	}

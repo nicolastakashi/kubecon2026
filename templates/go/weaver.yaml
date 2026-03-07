@@ -1,25 +1,10 @@
 params:
-  # you can specify namespaces here or pass them as a command line argument, it'd override the value here
-  # e.g. `weaver registry generate  --registry=../semantic-conventions/model --templates=./templates go ./output --param included_namespaces="db,http"`
-  # TODO -param as string slightly buggy - string inclusion is not the same as exact match with list element
-  included_namespaces: []
+  package_name: metrics
 
 templates:
   - template: metrics.go.j2
-    application_mode: each
-    file_name: "{{ctx.root_namespace}}/metric.go"
-    filter: >
-      semconv_grouped_metrics({"exclude_deprecated": true})
-      | .[]
-      | select (($included_namespaces | length == 0) or (.root_namespace as $ns | $included_namespaces | index($ns)))
-  - template: README.md.j2
-    file_name: "{{ctx.root_namespace}}/README.md"
-    application_mode: each
-    filter: >
-      semconv_grouped_metrics({"exclude_deprecated": true})
-      | flatten
-      | .[]
-      | select (($included_namespaces | length == 0) or (.root_namespace as $ns | $included_namespaces | index($ns)))
+    application_mode: single
+    file_name: "metrics.go"
 
 acronyms: [TLS, RTT, DNS, SHA]
 
@@ -42,8 +27,13 @@ comment_formats:
 default_comment_format: go
 
 text_maps:
-  go_instrument_type:
-    counter: Counter
-    histogram: Histogram
-    updowncounter: Gauge
-    gauge: Gauge
+  prom_instrument_vec:
+    counter: CounterVec
+    histogram: HistogramVec
+    updowncounter: GaugeVec
+    gauge: GaugeVec
+  prom_instrument_opts:
+    counter: CounterOpts
+    histogram: HistogramOpts
+    updowncounter: GaugeOpts
+    gauge: GaugeOpts
