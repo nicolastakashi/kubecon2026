@@ -57,11 +57,11 @@ func (s *E2ESuite) WaitForServer(t *testing.T) {
 
 			resp, err := s.Client.Do(req)
 			if err == nil && resp.StatusCode == http.StatusOK {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				return
 			}
 			if resp != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
@@ -74,7 +74,9 @@ func (s *E2ESuite) IngestParcel(t *testing.T) string {
 
 	resp, err := s.Client.Post(fmt.Sprintf("%s/api/parcels", s.BaseURL), "application/json", nil)
 	require.NoError(t, err, "Failed to ingest parcel")
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err, "Failed to read response body")
@@ -148,7 +150,7 @@ func (s *E2ESuite) ListParcels(t *testing.T) *http.Response {
 // CloseResponse safely closes an HTTP response
 func CloseResponse(resp *http.Response) {
 	if resp != nil && resp.Body != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 }
 
@@ -168,7 +170,9 @@ func RequireStatusCode(t *testing.T, resp *http.Response, expected int, msgAndAr
 func AssertJSONResponse(t *testing.T, resp *http.Response, target interface{}) {
 	t.Helper()
 	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 	}
 
 	body, err := io.ReadAll(resp.Body)
