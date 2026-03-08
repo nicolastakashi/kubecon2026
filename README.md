@@ -15,6 +15,16 @@ A simple Go application demonstrating Prometheus instrumentation with schema-dri
   - `http_requests_total{method, endpoint, status}` - HTTP request counter
   - `http_request_duration_seconds{method, endpoint}` - HTTP request latency
 
+## Instrumentation Modes
+
+The app supports three instrumentation implementations behind one stable telemetry contract:
+
+- `manual-prom` - the original handwritten Prometheus instrumentation
+- `generated-prom` - Prometheus collectors generated from `registry/registry.yaml`
+- `generated-otel` - OpenTelemetry instruments generated from the same schema and exposed through a Prometheus exporter
+
+Select the mode with `INSTRUMENTATION_MODE`. If omitted, the app defaults to `manual-prom`.
+
 ## API Endpoints
 
 | Method | Endpoint | Description |
@@ -32,20 +42,21 @@ A simple Go application demonstrating Prometheus instrumentation with schema-dri
 ### Using Make
 
 ```bash
-# Build and run
+# Build and run the default mode (manual-prom)
 make run
 
-# View metrics (while running)
-make metrics
+# Run a specific instrumentation mode
+INSTRUMENTATION_MODE=generated-prom make run
+INSTRUMENTATION_MODE=generated-otel make run
 
-# Run e2e tests
-make test-e2e
+# Validate one mode against the committed schema
+INSTRUMENTATION_MODE=generated-prom make live-check
 
-# Infer schema from telemetry
-make infer-schema
+# Validate all modes against the committed schema
+make live-check-all
 
-# Validate telemetry against schema
-make live-check
+# Generate both SDKs from the committed schema
+make generate
 
 # See all available commands
 make help
@@ -54,11 +65,9 @@ make help
 ### Manual
 
 ```bash
-# Build
-go build -o packetsorter .
-
-# Run
-./packetsorter
+# Build and run
+go build -o packetsorter ./cmd/packetsorter
+INSTRUMENTATION_MODE=generated-otel ./packetsorter
 
 # Ingest a parcel
 curl -X POST http://localhost:8080/api/parcels
@@ -83,19 +92,23 @@ The project uses Docker-based testing (no Kubernetes required):
 # Run unit tests
 make test
 
-# Run e2e tests (starts app, runs tests, cleans up)
+# Run e2e tests (assumes app is already running)
 make test-e2e
 
-# Run contract tests (validates telemetry against schema)
-make live-check
+# Run contract tests for one mode
+INSTRUMENTATION_MODE=generated-otel make live-check
+
+# Run contract tests for all three modes
+make live-check-all
 
 # Compare current telemetry against committed schema
 make schema-diff
+make schema-diff-report
 ```
 
-CI runs both e2e and contract tests automatically on push/PR. Contract test failures post a comment on the PR with violations and fix instructions.
+CI now publishes a sticky PR comment with a telemetry migration report. It summarizes `live-check` for `manual-prom`, `generated-prom`, and `generated-otel`, and includes a schema diff snippet when the emitted telemetry changes.
 
-## Schema Inference Demo
+## Schema Inference & Migration Demo
 
 This project demonstrates schema-driven observability using OpenTelemetry Weaver for the KubeCon talk: **"Schema Inference and Automation: A New Era for Telemetry Management"**.
 
@@ -107,15 +120,18 @@ For the full demo script, see **[DEMO.md](DEMO.md)**.
 # Step 1: Infer schema from app telemetry
 make infer-schema
 
-# Step 2: Validate telemetry against schema (happy path)
-make live-check
+# Step 2: Validate all instrumentation modes against the same schema
+make live-check-all
 
-# Step 3: Break a metric and validate (show contract violation)
-# Edit internal/metrics/metrics.go, change a label name
-make live-check   # Should show validation errors
-
-# Step 4: Generate OTel SDK code from schema
+# Step 3: Generate both migration targets from the same schema
 make generate
+
+# Step 4: Break a metric and validate (show contract violation)
+# Example: rename a generated or manual label/metric in your feature branch
+INSTRUMENTATION_MODE=generated-prom make live-check   # Should show validation errors
+
+# Step 5: Review schema drift locally before opening a PR
+make schema-diff-report
 ```
 
 ### Standalone Commands (for multi-terminal demo)
@@ -134,6 +150,11 @@ make run
 # Terminal 4: Run e2e tests (generates telemetry)
 make test-e2e
 
+# Migration demo:
+# Terminal 3: swap implementations without changing the contract
+INSTRUMENTATION_MODE=generated-prom make run
+INSTRUMENTATION_MODE=generated-otel make run
+
 # Contract Testing Demo:
 # Terminal 1: Run Weaver live-check
 make run-weaver-live-check
@@ -150,14 +171,15 @@ App (:8080/metrics) → OTel Collector → Weaver (:4319) → registry/
 ### Demo Scenarios
 
 1. **Infer schema from legacy app**: Run `make infer-schema` to generate `registry/registry.yaml` from live telemetry
-2. **Contract testing**: Run `make live-check` to validate app telemetry matches the schema
-3. **Breaking change detection**: Modify a metric name in `internal/metrics/metrics.go`, run `make live-check` to see:
+2. **Contract testing across migrations**: Run `make live-check-all` to prove all three implementations match the schema
+3. **Breaking change detection**: Modify a metric name or label in one implementation, run `INSTRUMENTATION_MODE=<mode> make live-check` to see:
    ```
    ✗ Found 1 violation(s):
      - new_metric_name: Metric does not exist in the registry.
    ```
-4. **Code generation**: Run `make generate` to produce OTel SDK instrumentation code in `generated/metrics.go`
-5. **Schema diff**: Run `make schema-diff` to compare current telemetry against the committed schema
+4. **SDK generation**: Run `make generate` to produce `generated/prom/metrics.go` and `generated/otel/metrics.go`
+5. **PR review**: Open a PR and inspect the sticky telemetry migration report comment with per-mode results and a schema diff excerpt
+6. **Schema diff**: Run `make schema-diff` or `make schema-diff-report` to compare current telemetry against the committed baseline
 
 ## Docker (Optional)
 
@@ -165,8 +187,8 @@ App (:8080/metrics) → OTel Collector → Weaver (:4319) → registry/
 # Build image
 docker build -t packetsorter .
 
-# Run
-docker run -p 8080:8080 packetsorter
+# Run a specific mode
+docker run -e INSTRUMENTATION_MODE=generated-otel -p 8080:8080 packetsorter
 ```
 
-This app is ~250 lines of Go with rich telemetry surface - perfect for demonstrating schema-driven observability!
+This app is still intentionally small, but it now demonstrates three instrumentation implementations behind one schema contract, which makes it a good fit for migration and PR-review demos.

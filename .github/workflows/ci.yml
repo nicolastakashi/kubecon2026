@@ -38,10 +38,11 @@ jobs:
         run: make test
 
   e2e-contract:
-    name: E2E & Contract Tests
+    name: Telemetry Migration Report
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     needs: [lint, test]
+    if: always()
     permissions:
       contents: read
       pull-requests: write
@@ -53,60 +54,121 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run E2E and contract tests
-        id: contract
+      - name: Run telemetry checks across instrumentation modes
+        id: telemetry
         run: |
           set +e
-          OUTPUT=$(make live-check 2>&1)
-          EXIT_CODE=$?
-          echo "$OUTPUT"
-          
-          # Extract just the results section
-          RESULTS=$(echo "$OUTPUT" | sed -n '/Live-Check Results/,/Live-check validation complete/p')
-          
-          # Save for PR comment
+
+          FAILURES=0
+          REPORT_FILE=$(mktemp)
           {
-            echo 'results<<EOF'
-            echo "$RESULTS"
+            echo "## Telemetry Migration Report"
+            echo ""
+            echo "| Mode | Status |"
+            echo "| --- | --- |"
+          } > "$REPORT_FILE"
+
+          for MODE in manual-prom generated-prom generated-otel; do
+            echo "Running live-check for $MODE"
+            OUTPUT=$(INSTRUMENTATION_MODE="$MODE" make live-check 2>&1)
+            EXIT_CODE=$?
+            echo "$OUTPUT"
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              STATUS="pass"
+              STATUS_ICON="✅"
+            else
+              STATUS="fail"
+              STATUS_ICON="❌"
+              FAILURES=1
+            fi
+
+            RESULTS=$(echo "$OUTPUT" | sed -n '/Live-Check Results/,/Live-check validation complete/p')
+            {
+              echo "| \`$MODE\` | $STATUS_ICON $STATUS |"
+              echo ""
+              echo "### \`$MODE\`"
+              echo ""
+              echo '```'
+              echo "$RESULTS"
+              echo '```'
+              echo ""
+            } >> "$REPORT_FILE"
+          done
+
+          SCHEMA_DIFF=$(INSTRUMENTATION_MODE=manual-prom make schema-diff-report 2>&1)
+          if [ -n "$SCHEMA_DIFF" ]; then
+            {
+              echo "## Schema Diff"
+              echo ""
+              echo '```diff'
+              echo "$SCHEMA_DIFF" | sed -n '1,200p'
+              echo '```'
+              echo ""
+            } >> "$REPORT_FILE"
+          else
+            {
+              echo "## Schema Diff"
+              echo ""
+              echo "No schema diff detected."
+              echo ""
+            } >> "$REPORT_FILE"
+          fi
+
+          {
+            echo 'report<<EOF'
+            cat "$REPORT_FILE"
             echo 'EOF'
           } >> $GITHUB_OUTPUT
-          
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          exit $EXIT_CODE
 
-      - name: Comment on PR (violations found)
-        if: failure() && github.event_name == 'pull_request'
+          cat "$REPORT_FILE" >> "$GITHUB_STEP_SUMMARY"
+          echo "exit_code=$FAILURES" >> $GITHUB_OUTPUT
+          exit 0
+
+      - name: Update sticky PR telemetry report
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const results = `${{ steps.contract.outputs.results }}`;
-            const body = `## ❌ Contract Test Failed
-            
-            \`\`\`
-            ${results}
-            \`\`\`
-            
-            ### How to fix
-            1. Run \`make live-check\` locally to reproduce
-            2. Either fix the metric name to match the schema, or
-            3. Run \`make infer-schema\` to update the schema (if this is an intentional change)
+            const marker = '<!-- telemetry-migration-report -->';
+            const report = `${{ steps.telemetry.outputs.report }}`;
+            const body = `${marker}
+
+            ${report}
+
+            ### How to use this
+            1. Run \`INSTRUMENTATION_MODE=<mode> make live-check\` locally to reproduce a mode-specific failure.
+            2. Run \`make schema-diff-report\` to inspect schema drift before updating the registry.
+            3. Keep the same schema-compatible output across modes unless the PR intentionally changes the contract.
             `;
-            
-            github.rest.issues.createComment({
+
+            const { data: comments } = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
+              per_page: 100,
             });
 
-      - name: Comment on PR (all passed)
-        if: success() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '## ✅ Contract Test Passed\n\nTelemetry matches the schema!'
-            });
+            const existing = comments.find((comment) =>
+              comment.user.type === 'Bot' && comment.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
+
+      - name: Fail if telemetry checks failed
+        if: steps.telemetry.outputs.exit_code != '0'
+        run: exit 1

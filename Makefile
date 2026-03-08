@@ -6,6 +6,7 @@ BUILD_DIR ?= bin
 APP_BIN := $(BUILD_DIR)/$(APP_NAME)
 MAIN_FILE ?= cmd/packetsorter/main.go
 DB_FILE ?= parcels.db
+INSTRUMENTATION_MODE ?= manual-prom
 
 CONTAINER_CLI ?= docker
 IMAGE_NAME ?= $(APP_NAME)
@@ -36,10 +37,10 @@ WEAVER := $(TOOLS_DIR)/weaver
 
 .PHONY: all build image clean \
 	run run-collector run-weaver-infer run-weaver-live-check metrics \
-	test test-e2e \
+	test test-e2e live-check-all schema-diff-report \
 	lint tidy \
 	weaver \
-	infer-schema live-check generate schema-diff \
+	infer-schema live-check generate generate-prom generate-otel schema-diff \
 	help
 
 ##@ Build
@@ -58,7 +59,7 @@ clean: ## Remove generated build/test artifacts.
 
 ##@ Run
 run: build ## Run the application locally.
-	./$(APP_BIN)
+	INSTRUMENTATION_MODE=$(INSTRUMENTATION_MODE) ./$(APP_BIN)
 
 run-collector: ## Run the OTel collector (foreground).
 	@echo "Starting OTel Collector..."
@@ -110,7 +111,7 @@ metrics: ## Print metrics from a running local app.
 
 ##@ Test
 test: ## Run unit tests (excludes e2e).
-	go test -short $$(go list ./... | grep -v /test/)
+	go test -short $$(go list ./... | rg -v '/(test|tmp)/')
 
 test-e2e: ## Run e2e tests (assumes app is running on :8080).
 	@$(E2E_TEST_CMD)
@@ -135,6 +136,7 @@ infer-schema: build ## Infer schema from app telemetry (runs full pipeline).
 	@# Start Weaver infer in background
 	@echo "[1/5] Starting Weaver infer..."
 	@$(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
+	@$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true
 	@$(CONTAINER_CLI) run -d --name $(WEAVER_CONTAINER) \
 		-p $(WEAVER_INFER_PORT):4317 \
 		-p $(WEAVER_ADMIN_PORT):8080 \
@@ -153,7 +155,7 @@ infer-schema: build ## Infer schema from app telemetry (runs full pipeline).
 	@sleep 2
 	@# Start app in background
 	@echo "[3/5] Starting application..."
-	@./$(APP_BIN) & APP_PID=$$!; \
+	@INSTRUMENTATION_MODE=$(INSTRUMENTATION_MODE) ./$(APP_BIN) & APP_PID=$$!; \
 	sleep 2; \
 	echo "[4/5] Running e2e tests..."; \
 	echo ""; \
@@ -193,6 +195,7 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	@# Start Weaver live-check in background
 	@echo "[1/5] Starting Weaver live-check..."
 	@$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true
+	@$(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
 	@$(CONTAINER_CLI) run -d --name $(WEAVER_LIVE_CHECK_CONTAINER) \
 		-p $(WEAVER_LIVE_CHECK_PORT):4317 \
 		-p $(WEAVER_LIVE_CHECK_ADMIN_PORT):8080 \
@@ -212,7 +215,7 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	@sleep 2
 	@# Start app in background
 	@echo "[3/5] Starting application..."
-	@./$(APP_BIN) & APP_PID=$$!; \
+	@INSTRUMENTATION_MODE=$(INSTRUMENTATION_MODE) ./$(APP_BIN) & APP_PID=$$!; \
 	sleep 2; \
 	echo "[4/5] Running e2e tests..."; \
 	echo ""; \
@@ -251,10 +254,57 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	echo ""; \
 	exit $$EXIT_CODE
 
-GENERATE_OUTPUT_DIR ?= generated
-GENERATE_TEMPLATES_DIR ?= templates/otel
+live-check-all: ## Run live-check across all supported instrumentation modes.
+	@for mode in manual-prom generated-prom generated-otel; do \
+		echo ""; \
+		echo "=========================================="; \
+		echo "  Live-check mode: $$mode"; \
+		echo "=========================================="; \
+		INSTRUMENTATION_MODE=$$mode $(MAKE) live-check --no-print-directory || exit $$?; \
+	done
 
-generate: ## Generate OTel SDK metrics.go from registry.
+GENERATE_BASE_DIR ?= generated
+GENERATE_PROM_OUTPUT_DIR ?= $(GENERATE_BASE_DIR)/prom
+GENERATE_OTEL_OUTPUT_DIR ?= $(GENERATE_BASE_DIR)/otel
+
+generate: generate-prom generate-otel ## Generate Prometheus and OTel SDKs from registry.
+	@echo ""
+	@echo "=========================================="
+	@echo "  Generated SDKs:"
+	@echo "    - $(GENERATE_PROM_OUTPUT_DIR)/metrics.go"
+	@echo "    - $(GENERATE_OTEL_OUTPUT_DIR)/metrics.go"
+	@echo "=========================================="
+	@echo ""
+
+generate-prom: ## Generate Prometheus SDK from registry.
+	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
+		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
+		echo "Run 'make infer-schema' first."; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "=========================================="
+	@echo "  Generating Prometheus SDK metrics.go"
+	@echo "=========================================="
+	@echo ""
+	@mkdir -p $(GENERATE_PROM_OUTPUT_DIR)
+	@$(CONTAINER_CLI) run --rm \
+		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
+		-v $(PWD)/templates/go:/templates:ro \
+		-v $(PWD)/$(GENERATE_PROM_OUTPUT_DIR):/output \
+		$(WEAVER_IMAGE) registry generate \
+			--registry /registry \
+			--templates /templates \
+			--skip-policies \
+			. /output >/tmp/generated-prom.log 2>&1 || true
+	@test -f "$(GENERATE_PROM_OUTPUT_DIR)/metrics.go"
+	@echo ""
+	@echo "=========================================="
+	@echo "  Generated: $(GENERATE_PROM_OUTPUT_DIR)/metrics.go"
+	@echo "=========================================="
+	@echo ""
+
+generate-otel: ## Generate OTel SDK metrics.go from registry.
 	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
 		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
 		echo "Run 'make infer-schema' first."; \
@@ -265,22 +315,22 @@ generate: ## Generate OTel SDK metrics.go from registry.
 	@echo "  Generating OTel SDK metrics.go"
 	@echo "=========================================="
 	@echo ""
-	@mkdir -p $(GENERATE_OUTPUT_DIR)
+	@mkdir -p $(GENERATE_OTEL_OUTPUT_DIR)
 	@$(CONTAINER_CLI) run --rm \
 		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
-		-v $(PWD)/$(GENERATE_TEMPLATES_DIR):/templates:ro \
-		-v $(PWD)/$(GENERATE_OUTPUT_DIR):/output \
+		-v $(PWD)/templates/otel:/templates:ro \
+		-v $(PWD)/$(GENERATE_OTEL_OUTPUT_DIR):/output \
 		$(WEAVER_IMAGE) registry generate \
 			--registry /registry \
 			--templates /templates \
 			--skip-policies \
-			. /output
+			. /output >/tmp/generated-otel.log 2>&1 || true
+	@test -f "$(GENERATE_OTEL_OUTPUT_DIR)/metrics.go"
 	@echo ""
 	@echo "=========================================="
-	@echo "  Generated: $(GENERATE_OUTPUT_DIR)/metrics.go"
+	@echo "  Generated: $(GENERATE_OTEL_OUTPUT_DIR)/metrics.go"
 	@echo "=========================================="
 	@echo ""
-	@cat $(GENERATE_OUTPUT_DIR)/metrics.go
 
 SCHEMA_BASELINE ?= registry/registry.yaml
 
@@ -308,6 +358,16 @@ schema-diff: build ## Show schema changes between baseline and current telemetry
 	@rm -rf registry.new
 	@rm -rf $(WEAVER_OUTPUT_DIR).baseline 2>/dev/null || true
 	@echo ""
+
+schema-diff-report: build ## Print raw schema diff for CI/PR comments.
+	@if [ ! -f "$(SCHEMA_BASELINE)" ]; then \
+		echo "Error: No baseline schema found at $(SCHEMA_BASELINE)"; \
+		echo "Run 'make infer-schema' first to create a baseline."; \
+		exit 1; \
+	fi
+	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory >/tmp/schema-diff-report.log 2>&1 || true
+	@diff -u $(WEAVER_OUTPUT_DIR)/registry.yaml registry.new/registry.yaml || true
+	@rm -rf registry.new
 
 ##@ Tooling
 weaver: $(WEAVER) ## Print local Weaver CLI version.
