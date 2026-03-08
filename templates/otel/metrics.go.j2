@@ -3,7 +3,6 @@
 package {{ params.package_name | default("metrics") }}
 
 import (
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -27,8 +26,8 @@ type Metrics struct {
 }
 
 // New creates and registers all metric instruments.
-func New(meterName string) (*Metrics, error) {
-	meter := otel.Meter(meterName)
+func New(provider metric.MeterProvider, meterName string) (*Metrics, error) {
+	meter := provider.Meter(meterName)
 	m := &Metrics{}
 	var err error
 
