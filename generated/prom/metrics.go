@@ -20,7 +20,7 @@ func New() *Metrics {
 
 		HttpRequestDurationSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "http_request_duration_seconds",
+				Name:    "http_request_duration_miliseconds",
 				Help:    "",
 				Buckets: prometheus.DefBuckets,
 			},
