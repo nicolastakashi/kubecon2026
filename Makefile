@@ -353,10 +353,13 @@ schema-diff: build ## Show schema changes between baseline and current telemetry
 	@echo ""
 	@echo "Changes detected:"
 	@echo ""
-	@diff -u $(WEAVER_OUTPUT_DIR)/registry.yaml registry.new/registry.yaml || true
+	@go run ./cmd/registrynormalize "$(WEAVER_OUTPUT_DIR)/registry.yaml" > /tmp/registry-baseline.normalized.yaml
+	@go run ./cmd/registrynormalize registry.new/registry.yaml > /tmp/registry-current.normalized.yaml
+	@diff -u /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml || true
 	@# Cleanup
 	@rm -rf registry.new
 	@rm -rf $(WEAVER_OUTPUT_DIR).baseline 2>/dev/null || true
+	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml
 	@echo ""
 
 schema-diff-report: build ## Print raw schema diff for CI/PR comments.
@@ -366,8 +369,11 @@ schema-diff-report: build ## Print raw schema diff for CI/PR comments.
 		exit 1; \
 	fi
 	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory >/tmp/schema-diff-report.log 2>&1 || true
-	@diff -u $(WEAVER_OUTPUT_DIR)/registry.yaml registry.new/registry.yaml || true
+	@go run ./cmd/registrynormalize "$(WEAVER_OUTPUT_DIR)/registry.yaml" > /tmp/registry-baseline.normalized.yaml
+	@go run ./cmd/registrynormalize registry.new/registry.yaml > /tmp/registry-current.normalized.yaml
+	@diff -u /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml || true
 	@rm -rf registry.new
+	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml
 
 ##@ Tooling
 weaver: $(WEAVER) ## Print local Weaver CLI version.
