@@ -244,7 +244,8 @@ schema-diff: build ## Show schema changes between baseline and current telemetry
 	@# Backup current schema
 	@cp -r $(WEAVER_OUTPUT_DIR) $(WEAVER_OUTPUT_DIR).baseline 2>/dev/null || true
 	@# Infer fresh schema to tmp location
-	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory 2>/dev/null
+	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory >/tmp/schema-diff.log 2>&1 || { cat /tmp/schema-diff.log; rm -f /tmp/schema-diff.log; exit 1; }
+	@test -f registry.new/registry.yaml || { cat /tmp/schema-diff.log; rm -f /tmp/schema-diff.log; exit 1; }
 	@# Compare
 	@echo ""
 	@echo "Changes detected:"
@@ -255,7 +256,7 @@ schema-diff: build ## Show schema changes between baseline and current telemetry
 	@# Cleanup
 	@rm -rf registry.new
 	@rm -rf $(WEAVER_OUTPUT_DIR).baseline 2>/dev/null || true
-	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml
+	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml /tmp/schema-diff.log
 	@echo ""
 
 schema-diff-report: build ## Print raw schema diff for CI/PR comments.
@@ -264,12 +265,13 @@ schema-diff-report: build ## Print raw schema diff for CI/PR comments.
 		echo "Run 'make infer-schema' first to create a baseline."; \
 		exit 1; \
 	fi
-	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory >/tmp/schema-diff-report.log 2>&1 || true
+	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory >/tmp/schema-diff-report.log 2>&1 || { cat /tmp/schema-diff-report.log; rm -f /tmp/schema-diff-report.log; exit 1; }
+	@test -f registry.new/registry.yaml || { cat /tmp/schema-diff-report.log; rm -f /tmp/schema-diff-report.log; exit 1; }
 	@go run ./cmd/registrynormalize "$(WEAVER_OUTPUT_DIR)/registry.yaml" > /tmp/registry-baseline.normalized.yaml
 	@go run ./cmd/registrynormalize registry.new/registry.yaml > /tmp/registry-current.normalized.yaml
 	@diff -u /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml || true
 	@rm -rf registry.new
-	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml
+	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml /tmp/schema-diff-report.log
 
 ##@ Help
 help: ## Show this help.
