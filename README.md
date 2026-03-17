@@ -1,194 +1,142 @@
-# Packet Sorter - KubeCon Demo App
+# Packet Sorter
 
-A simple Go application demonstrating Prometheus instrumentation with schema-driven observability principles.
+This repository is a small Go app that demonstrates schema-driven observability.
 
-## Features
+You do not need to understand the whole codebase to get the idea.
 
-- **SQLite persistence** for parcel tracking
-- **Gorilla Mux** for HTTP routing  
-- **Prometheus client_golang** for metrics instrumentation
-- **Rich telemetry**:
-  - `parcels_total{stage, outcome}` - Counter for parcels processed
-  - `stage_duration_seconds{stage}` - Histogram for processing time
-  - `parcels_backlog{stage}` - Gauge for backlog size
-  - `rework_reason_total{reason}` - Counter for rework reasons
-  - `http_requests_total{method, endpoint, status}` - HTTP request counter
-  - `http_request_duration_seconds{method, endpoint}` - HTTP request latency
+The simple version is:
 
-## Instrumentation Modes
+- the app exposes metrics
+- Weaver can learn a telemetry schema from those metrics
+- that schema becomes the contract
+- we can change how metrics are implemented without changing that contract
 
-The app supports three instrumentation implementations behind one stable telemetry contract:
+## What This Project Is
 
-- `manual-prom` - the original handwritten Prometheus instrumentation
+`Packet Sorter` is a tiny HTTP service that pretends to process parcels.
+
+It gives us something realistic to instrument, while staying small enough to read quickly.
+
+The interesting part is not parcel shipping. The interesting part is how telemetry is inferred, checked, and generated.
+
+## Why This Repo Exists
+
+Telemetry migrations are easy to break.
+
+For example, during a migration it is common to accidentally:
+
+- rename a metric
+- remove a label
+- change metric type
+- change behavior between implementations
+
+This repo shows a safer approach:
+
+- infer a schema from live telemetry
+- commit that schema
+- validate implementations against it
+- generate new instrumentation from the same schema
+
+## The Three Instrumentation Modes
+
+The app supports three implementations behind the same telemetry contract:
+
+- `manual-prom` - handwritten Prometheus instrumentation
 - `generated-prom` - Prometheus collectors generated from `registry/registry.yaml`
 - `generated-otel` - OpenTelemetry instruments generated from the same schema and exposed through a Prometheus exporter
 
-Select the mode with `INSTRUMENTATION_MODE`. If omitted, the app defaults to `manual-prom`.
+Set the mode with `INSTRUMENTATION_MODE`.
 
-## API Endpoints
+If you do not set it, the app uses `manual-prom`.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/parcels` | Ingest a new parcel |
-| POST | `/api/parcels/{id}/process` | Process parcel (body: `{"outcome": "ok\|rework\|drop", "reason": "..."}`) |
-| POST | `/api/parcels/{id}/ship` | Ship a parcel (only if outcome=ok) |
-| GET | `/api/parcels/{id}` | Get parcel status |
-| GET | `/api/parcels` | List recent parcels |
-| GET | `/health` | Health check |
-| GET | `/metrics` | Prometheus metrics |
+## The Main Weaver Commands
+
+These are the three main Weaver commands used in this repo:
+
+```bash
+# Learn the telemetry contract from a running app
+weaver registry infer --output ./registry
+
+# Check if the app still matches that contract
+weaver registry live-check --registry ./registry
+
+# Generate instrumentation code from that contract
+weaver registry generate --registry ./registry --templates ./templates/go . ./generated/prom
+```
+
+These examples are intentionally simple so the core idea is easy to understand.
+
+## A Simple Mental Model
+
+Think about the flow like this:
+
+```text
+app telemetry -> Weaver learns or checks -> registry becomes the contract
+```
+
+Then later:
+
+```text
+registry -> generated code -> new implementation
+```
+
+## Project Layout
+
+- `cmd/packetsorter` - application entrypoint
+- `internal/` - app logic, handlers, storage, and instrumentation wiring
+- `registry/registry.yaml` - the committed telemetry contract
+- `generated/prom/` - generated Prometheus code
+- `generated/otel/` - generated OpenTelemetry code
+- `templates/` - generation templates
+- `test/e2e/` - end-to-end tests
 
 ## Quick Start
 
-### Using Make
+Run the app:
 
 ```bash
-# Build and run the default mode (manual-prom)
 make run
-
-# Run a specific instrumentation mode
-INSTRUMENTATION_MODE=generated-prom make run
-INSTRUMENTATION_MODE=generated-otel make run
-
-# Validate one mode against the committed schema
-INSTRUMENTATION_MODE=generated-prom make live-check
-
-# Validate all modes against the committed schema
-make live-check-all
-
-# Generate both SDKs from the committed schema
-make generate
-
-# See all available commands
-make help
 ```
 
-### Manual
+Try another instrumentation mode:
 
 ```bash
-# Build and run
-go build -o packetsorter ./cmd/packetsorter
-INSTRUMENTATION_MODE=generated-otel ./packetsorter
+INSTRUMENTATION_MODE=generated-prom make run
+```
 
-# Ingest a parcel
+Send one request:
+
+```bash
 curl -X POST http://localhost:8080/api/parcels
+```
 
-# Process it (ok)
-curl -X POST http://localhost:8080/api/parcels/PKG-xxx/process \
-  -H "Content-Type: application/json" \
-  -d '{"outcome": "ok"}'
+See the metrics:
 
-# Ship it
-curl -X POST http://localhost:8080/api/parcels/PKG-xxx/ship
-
-# View metrics
+```bash
 curl http://localhost:8080/metrics
 ```
 
-## Testing
-
-The project uses Docker-based testing (no Kubernetes required):
+## Common Commands
 
 ```bash
-# Run unit tests
-make test
-
-# Run e2e tests (assumes app is already running)
-make test-e2e
-
-# Run contract tests for one mode
-INSTRUMENTATION_MODE=generated-otel make live-check
-
-# Run contract tests for all three modes
-make live-check-all
-
-# Compare current telemetry against committed schema
-make schema-diff
-make schema-diff-report
+make run              # run the app
+make test             # run unit tests
+make test-e2e         # run end-to-end tests
+make infer-schema     # infer registry from live telemetry
+make live-check       # validate current mode against the registry
+make generate         # generate Prometheus and OTel code
+make schema-diff      # compare current telemetry with committed schema
+make help             # list available targets
 ```
 
-CI now publishes a sticky PR comment with a telemetry migration report. It summarizes `live-check` for `manual-prom`, `generated-prom`, and `generated-otel`, and includes a schema diff snippet when the emitted telemetry changes.
+## API Endpoints
 
-## Schema Inference & Migration Demo
-
-This project demonstrates schema-driven observability using OpenTelemetry Weaver for the KubeCon talk: **"Schema Inference and Automation: A New Era for Telemetry Management"**.
-
-For the full demo script, see **[DEMO.md](DEMO.md)**.
-
-### Quick Demo
-
-```bash
-# Step 1: Infer schema from app telemetry
-make infer-schema
-
-# Step 2: Validate all instrumentation modes against the same schema
-make live-check-all
-
-# Step 3: Generate both migration targets from the same schema
-make generate
-
-# Step 4: Break a metric and validate (show contract violation)
-# Example: rename a generated or manual label/metric in your feature branch
-INSTRUMENTATION_MODE=generated-prom make live-check   # Should show validation errors
-
-# Step 5: Review schema drift locally before opening a PR
-make schema-diff-report
-```
-
-### Standalone Commands (for multi-terminal demo)
-
-```bash
-# Schema Inference Demo:
-# Terminal 1: Run Weaver infer
-make run-weaver-infer
-
-# Terminal 2: Run OTel Collector  
-make run-collector
-
-# Terminal 3: Run the app
-make run
-
-# Terminal 4: Run e2e tests (generates telemetry)
-make test-e2e
-
-# Migration demo:
-# Terminal 3: swap implementations without changing the contract
-INSTRUMENTATION_MODE=generated-prom make run
-INSTRUMENTATION_MODE=generated-otel make run
-
-# Contract Testing Demo:
-# Terminal 1: Run Weaver live-check
-make run-weaver-live-check
-
-# Terminal 2-4: Same as above (collector, app, tests)
-```
-
-### Data Flow
-
-```
-App (:8080/metrics) → OTel Collector → Weaver (:4319) → registry/
-```
-
-### Demo Scenarios
-
-1. **Infer schema from legacy app**: Run `make infer-schema` to generate `registry/registry.yaml` from live telemetry
-2. **Contract testing across migrations**: Run `make live-check-all` to prove all three implementations match the schema
-3. **Breaking change detection**: Modify a metric name or label in one implementation, run `INSTRUMENTATION_MODE=<mode> make live-check` to see:
-   ```
-   ✗ Found 1 violation(s):
-     - new_metric_name: Metric does not exist in the registry.
-   ```
-4. **SDK generation**: Run `make generate` to produce `generated/prom/metrics.go` and `generated/otel/metrics.go`
-5. **PR review**: Open a PR and inspect the sticky telemetry migration report comment with per-mode results and a schema diff excerpt
-6. **Schema diff**: Run `make schema-diff` or `make schema-diff-report` to compare current telemetry against the committed baseline
-
-## Docker (Optional)
-
-```bash
-# Build image
-docker build -t packetsorter .
-
-# Run a specific mode
-docker run -e INSTRUMENTATION_MODE=generated-otel -p 8080:8080 packetsorter
-```
-
-This app is still intentionally small, but it now demonstrates three instrumentation implementations behind one schema contract, which makes it a good fit for migration and PR-review demos.
+| Method | Endpoint                    | Description         |
+| ------ | --------------------------- | ------------------- |
+| POST   | `/api/parcels`              | Create a parcel     |
+| POST   | `/api/parcels/{id}/process` | Process a parcel    |
+| POST   | `/api/parcels/{id}/ship`    | Ship a parcel       |
+| GET    | `/api/parcels/{id}`         | Get parcel status   |
+| GET    | `/api/parcels`              | List recent parcels |
+| GET    | `/health`                   | Health check        |
+| GET    | `/metrics`                  | Prometheus metrics  |

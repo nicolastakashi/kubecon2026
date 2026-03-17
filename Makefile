@@ -12,11 +12,7 @@ CONTAINER_CLI ?= docker
 IMAGE_NAME ?= $(APP_NAME)
 IMAGE_TAG ?= latest
 
-TOOLS_DIR := $(CURDIR)/tmp/bin
-WEAVER_VERSION ?= 0.21.2
-
 E2E_TEST_DIR ?= test/e2e
-E2E_TEST_CMD := cd $(E2E_TEST_DIR) && go test -count=1 -v . -timeout=120s
 
 OTEL_COLLECTOR_IMAGE ?= otel/opentelemetry-collector-contrib:0.146.0
 OTEL_COLLECTOR_CONFIG ?= config/otel-collector-config-local.yaml
@@ -33,13 +29,10 @@ WEAVER_LIVE_CHECK_CONTAINER ?= weaver-live-check
 WEAVER_LIVE_CHECK_PORT ?= 4319
 WEAVER_LIVE_CHECK_ADMIN_PORT ?= 4321
 
-WEAVER := $(TOOLS_DIR)/weaver
-
 .PHONY: all build image clean \
 	run run-collector run-weaver-infer run-weaver-live-check metrics \
-	test test-e2e live-check-all schema-diff-report \
+	test test-e2e schema-diff-report \
 	lint tidy \
-	weaver \
 	infer-schema live-check generate generate-prom generate-otel schema-diff \
 	help
 
@@ -111,10 +104,10 @@ metrics: ## Print metrics from a running local app.
 
 ##@ Test
 test: ## Run unit tests (excludes e2e).
-	go test -short $$(go list ./... | rg -v '/(test|tmp)/')
+	go test -short $$(go list ./... | grep -vE '/(test|tmp)(/|$$)')
 
 test-e2e: ## Run e2e tests (assumes app is running on :8080).
-	@$(E2E_TEST_CMD)
+	@cd $(E2E_TEST_DIR) && go test -count=1 -v . -timeout=120s
 
 ##@ Development
 lint: ## Run formatters and linters.
@@ -127,141 +120,44 @@ tidy: ## Ensure go.mod/go.sum are tidy.
 
 ##@ Schema Inference
 infer-schema: build ## Infer schema from app telemetry (runs full pipeline).
-	@echo ""
-	@echo "=========================================="
-	@echo "  Starting Schema Inference Pipeline"
-	@echo "=========================================="
-	@echo ""
-	@mkdir -p $(WEAVER_OUTPUT_DIR)
-	@# Start Weaver infer in background
-	@echo "[1/5] Starting Weaver infer..."
-	@$(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
-	@$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true
-	@$(CONTAINER_CLI) run -d --name $(WEAVER_CONTAINER) \
-		-p $(WEAVER_INFER_PORT):4317 \
-		-p $(WEAVER_ADMIN_PORT):8080 \
-		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/output \
-		$(WEAVER_IMAGE) registry infer \
-			--output /output \
-			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT) >/dev/null
-	@sleep 2
-	@# Start Collector in background
-	@echo "[2/5] Starting OTel Collector..."
-	@$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
-	@$(CONTAINER_CLI) run -d --name $(OTEL_COLLECTOR_CONTAINER) \
-		-p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
-		-v $(PWD)/$(OTEL_COLLECTOR_CONFIG):/conf/otel-collector-config.yaml:ro \
-		$(OTEL_COLLECTOR_IMAGE) --config=/conf/otel-collector-config.yaml >/dev/null
-	@sleep 2
-	@# Start app in background
-	@echo "[3/5] Starting application..."
-	@INSTRUMENTATION_MODE=$(INSTRUMENTATION_MODE) ./$(APP_BIN) & APP_PID=$$!; \
-	sleep 2; \
-	echo "[4/5] Running e2e tests..."; \
-	echo ""; \
-	$(E2E_TEST_CMD) || true; \
-	echo ""; \
-	echo "[5/5] Waiting for metrics to be scraped..."; \
-	sleep 10; \
-	echo "Stopping Weaver to flush schema..."; \
-	curl -s -X POST http://localhost:$(WEAVER_ADMIN_PORT)/stop 2>/dev/null || true; \
-	sleep 2; \
-	kill $$APP_PID 2>/dev/null || true
-	@# Cleanup containers
-	@$(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
-	@$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
-	@echo ""
-	@echo "=========================================="
-	@echo "  Schema inferred successfully!"
-	@echo "  Output: $(WEAVER_OUTPUT_DIR)/"
-	@echo "=========================================="
-	@echo ""
+	@ROOT_DIR="$(CURDIR)" \
+	APP_BIN="$(APP_BIN)" \
+	INSTRUMENTATION_MODE="$(INSTRUMENTATION_MODE)" \
+	CONTAINER_CLI="$(CONTAINER_CLI)" \
+	OTEL_COLLECTOR_IMAGE="$(OTEL_COLLECTOR_IMAGE)" \
+	OTEL_COLLECTOR_CONFIG="$(OTEL_COLLECTOR_CONFIG)" \
+	OTEL_COLLECTOR_CONTAINER="$(OTEL_COLLECTOR_CONTAINER)" \
+	WEAVER_IMAGE="$(WEAVER_IMAGE)" \
+	WEAVER_CONTAINER="$(WEAVER_CONTAINER)" \
+	WEAVER_LIVE_CHECK_CONTAINER="$(WEAVER_LIVE_CHECK_CONTAINER)" \
+	WEAVER_INFER_PORT="$(WEAVER_INFER_PORT)" \
+	WEAVER_ADMIN_PORT="$(WEAVER_ADMIN_PORT)" \
+	WEAVER_INACTIVITY_TIMEOUT="$(WEAVER_INACTIVITY_TIMEOUT)" \
+	WEAVER_OUTPUT_DIR="$(WEAVER_OUTPUT_DIR)" \
+	E2E_TEST_DIR="$(E2E_TEST_DIR)" \
+	./scripts/infer-schema.sh
 
 # Note: The following metrics are filtered out from violations:
 # - go_gc_duration_seconds: Prometheus Summary not fully supported by OTel prometheusreceiver
 # - process_*: Go runtime metrics not relevant to app schema
 # - scrape_*: OTel Collector internal metrics
 live-check: build ## Validate app telemetry against schema (runs full pipeline).
-	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
-		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
-		echo "Run 'make infer-schema' first."; \
-		exit 1; \
-	fi
-	@echo ""
-	@echo "=========================================="
-	@echo "  Starting Live-Check Validation"
-	@echo "=========================================="
-	@echo ""
-	@# Start Weaver live-check in background
-	@echo "[1/5] Starting Weaver live-check..."
-	@$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true
-	@$(CONTAINER_CLI) rm -f $(WEAVER_CONTAINER) 2>/dev/null || true
-	@$(CONTAINER_CLI) run -d --name $(WEAVER_LIVE_CHECK_CONTAINER) \
-		-p $(WEAVER_LIVE_CHECK_PORT):4317 \
-		-p $(WEAVER_LIVE_CHECK_ADMIN_PORT):8080 \
-		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
-		$(WEAVER_IMAGE) registry live-check \
-			--registry /registry \
-			--format json \
-			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT) >/dev/null
-	@sleep 2
-	@# Start Collector in background
-	@echo "[2/5] Starting OTel Collector..."
-	@$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true
-	@$(CONTAINER_CLI) run -d --name $(OTEL_COLLECTOR_CONTAINER) \
-		-p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
-		-v $(PWD)/$(OTEL_COLLECTOR_CONFIG):/conf/otel-collector-config.yaml:ro \
-		$(OTEL_COLLECTOR_IMAGE) --config=/conf/otel-collector-config.yaml >/dev/null
-	@sleep 2
-	@# Start app in background
-	@echo "[3/5] Starting application..."
-	@INSTRUMENTATION_MODE=$(INSTRUMENTATION_MODE) ./$(APP_BIN) & APP_PID=$$!; \
-	sleep 2; \
-	echo "[4/5] Running e2e tests..."; \
-	echo ""; \
-	$(E2E_TEST_CMD) || true; \
-	echo ""; \
-	echo "[5/5] Waiting for metrics to be validated..."; \
-	sleep 15; \
-	echo ""; \
-	echo "=========================================="; \
-	echo "  Live-Check Results"; \
-	echo "=========================================="; \
-	echo ""; \
-	VIOLATIONS=$$($(CONTAINER_CLI) logs $(WEAVER_LIVE_CHECK_CONTAINER) 2>&1 | \
-		sed -n '/^{/,$$p' | \
-		jq -s '[.[] | select(.metric.live_check_result.all_advice[]?.advice_level == "violation") | {name: .metric.name, message: .metric.live_check_result.all_advice[] | select(.advice_level == "violation") | .message}] | unique | [.[] | select(.name | test("^(go_gc_duration|process_|scrape_)") | not)]' 2>/dev/null || echo "[]"); \
-	VIOLATION_COUNT=$$(echo "$$VIOLATIONS" | jq 'length'); \
-	if [ "$$VIOLATION_COUNT" = "0" ]; then \
-		echo "✓ No violations found - telemetry matches schema!"; \
-		EXIT_CODE=0; \
-	else \
-		echo "✗ Found $$VIOLATION_COUNT violation(s):"; \
-		echo ""; \
-		echo "$$VIOLATIONS" | jq -r '.[] | "  - \(.name): \(.message)"'; \
-		EXIT_CODE=1; \
-	fi; \
-	echo ""; \
-	curl -s -X POST http://localhost:$(WEAVER_LIVE_CHECK_ADMIN_PORT)/stop 2>/dev/null || true; \
-	sleep 2; \
-	kill $$APP_PID 2>/dev/null || true; \
-	$(CONTAINER_CLI) rm -f $(WEAVER_LIVE_CHECK_CONTAINER) 2>/dev/null || true; \
-	$(CONTAINER_CLI) rm -f $(OTEL_COLLECTOR_CONTAINER) 2>/dev/null || true; \
-	echo ""; \
-	echo "=========================================="; \
-	echo "  Live-check validation complete!"; \
-	echo "=========================================="; \
-	echo ""; \
-	exit $$EXIT_CODE
-
-live-check-all: ## Run live-check across all supported instrumentation modes.
-	@for mode in manual-prom generated-prom generated-otel; do \
-		echo ""; \
-		echo "=========================================="; \
-		echo "  Live-check mode: $$mode"; \
-		echo "=========================================="; \
-		INSTRUMENTATION_MODE=$$mode $(MAKE) live-check --no-print-directory || exit $$?; \
-	done
+	@ROOT_DIR="$(CURDIR)" \
+	APP_BIN="$(APP_BIN)" \
+	INSTRUMENTATION_MODE="$(INSTRUMENTATION_MODE)" \
+	CONTAINER_CLI="$(CONTAINER_CLI)" \
+	OTEL_COLLECTOR_IMAGE="$(OTEL_COLLECTOR_IMAGE)" \
+	OTEL_COLLECTOR_CONFIG="$(OTEL_COLLECTOR_CONFIG)" \
+	OTEL_COLLECTOR_CONTAINER="$(OTEL_COLLECTOR_CONTAINER)" \
+	WEAVER_IMAGE="$(WEAVER_IMAGE)" \
+	WEAVER_CONTAINER="$(WEAVER_CONTAINER)" \
+	WEAVER_LIVE_CHECK_CONTAINER="$(WEAVER_LIVE_CHECK_CONTAINER)" \
+	WEAVER_LIVE_CHECK_PORT="$(WEAVER_LIVE_CHECK_PORT)" \
+	WEAVER_LIVE_CHECK_ADMIN_PORT="$(WEAVER_LIVE_CHECK_ADMIN_PORT)" \
+	WEAVER_INACTIVITY_TIMEOUT="$(WEAVER_INACTIVITY_TIMEOUT)" \
+	WEAVER_OUTPUT_DIR="$(WEAVER_OUTPUT_DIR)" \
+	E2E_TEST_DIR="$(E2E_TEST_DIR)" \
+	./scripts/live-check.sh
 
 GENERATE_BASE_DIR ?= generated
 GENERATE_PROM_OUTPUT_DIR ?= $(GENERATE_BASE_DIR)/prom
@@ -348,7 +244,8 @@ schema-diff: build ## Show schema changes between baseline and current telemetry
 	@# Backup current schema
 	@cp -r $(WEAVER_OUTPUT_DIR) $(WEAVER_OUTPUT_DIR).baseline 2>/dev/null || true
 	@# Infer fresh schema to tmp location
-	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory 2>/dev/null
+	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory >/tmp/schema-diff.log 2>&1 || { cat /tmp/schema-diff.log; rm -f /tmp/schema-diff.log; exit 1; }
+	@test -f registry.new/registry.yaml || { cat /tmp/schema-diff.log; rm -f /tmp/schema-diff.log; exit 1; }
 	@# Compare
 	@echo ""
 	@echo "Changes detected:"
@@ -359,7 +256,7 @@ schema-diff: build ## Show schema changes between baseline and current telemetry
 	@# Cleanup
 	@rm -rf registry.new
 	@rm -rf $(WEAVER_OUTPUT_DIR).baseline 2>/dev/null || true
-	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml
+	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml /tmp/schema-diff.log
 	@echo ""
 
 schema-diff-report: build ## Print raw schema diff for CI/PR comments.
@@ -368,23 +265,13 @@ schema-diff-report: build ## Print raw schema diff for CI/PR comments.
 		echo "Run 'make infer-schema' first to create a baseline."; \
 		exit 1; \
 	fi
-	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory >/tmp/schema-diff-report.log 2>&1 || true
+	@WEAVER_OUTPUT_DIR=registry.new $(MAKE) infer-schema --no-print-directory >/tmp/schema-diff-report.log 2>&1 || { cat /tmp/schema-diff-report.log; rm -f /tmp/schema-diff-report.log; exit 1; }
+	@test -f registry.new/registry.yaml || { cat /tmp/schema-diff-report.log; rm -f /tmp/schema-diff-report.log; exit 1; }
 	@go run ./cmd/registrynormalize "$(WEAVER_OUTPUT_DIR)/registry.yaml" > /tmp/registry-baseline.normalized.yaml
 	@go run ./cmd/registrynormalize registry.new/registry.yaml > /tmp/registry-current.normalized.yaml
 	@diff -u /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml || true
 	@rm -rf registry.new
-	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml
-
-##@ Tooling
-weaver: $(WEAVER) ## Print local Weaver CLI version.
-	@$(WEAVER) --version
-
-$(WEAVER):
-	@mkdir -p $(TOOLS_DIR)
-	@OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
-	ARCH=$$(uname -m); case $$ARCH in x86_64) ARCH="x86_64";; aarch64|arm64) ARCH="aarch64";; esac; \
-	case $$OS in darwin) TARGET="$$ARCH-apple-darwin";; linux) TARGET="$$ARCH-unknown-linux-gnu";; esac; \
-	curl -fsSL "https://github.com/open-telemetry/weaver/releases/download/v$(WEAVER_VERSION)/weaver-$$TARGET.tar.xz" | tar -xJ --strip-components=1 -C $(TOOLS_DIR)
+	@rm -f /tmp/registry-baseline.normalized.yaml /tmp/registry-current.normalized.yaml /tmp/schema-diff-report.log
 
 ##@ Help
 help: ## Show this help.
