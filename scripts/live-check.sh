@@ -23,9 +23,9 @@ cleanup() {
   if [[ -n "$APP_PID" ]]; then
     kill "$APP_PID" 2>/dev/null || true
   fi
-  "$CONTAINER_CLI" rm -f "$WEAVER_CONTAINER" 2>/dev/null || true
-  "$CONTAINER_CLI" rm -f "$WEAVER_LIVE_CHECK_CONTAINER" 2>/dev/null || true
-  "$CONTAINER_CLI" rm -f "$OTEL_COLLECTOR_CONTAINER" 2>/dev/null || true
+  "$CONTAINER_CLI" rm -f "$WEAVER_CONTAINER" >/dev/null 2>&1 || true
+  "$CONTAINER_CLI" rm -f "$WEAVER_LIVE_CHECK_CONTAINER" >/dev/null 2>&1 || true
+  "$CONTAINER_CLI" rm -f "$OTEL_COLLECTOR_CONTAINER" >/dev/null 2>&1 || true
 }
 
 trap cleanup EXIT
@@ -43,8 +43,8 @@ echo "=========================================="
 echo ""
 
 echo "[1/5] Starting Weaver live-check..."
-"$CONTAINER_CLI" rm -f "$WEAVER_LIVE_CHECK_CONTAINER" 2>/dev/null || true
-"$CONTAINER_CLI" rm -f "$WEAVER_CONTAINER" 2>/dev/null || true
+"$CONTAINER_CLI" rm -f "$WEAVER_LIVE_CHECK_CONTAINER" >/dev/null 2>&1 || true
+"$CONTAINER_CLI" rm -f "$WEAVER_CONTAINER" >/dev/null 2>&1 || true
 "$CONTAINER_CLI" run -d --name "$WEAVER_LIVE_CHECK_CONTAINER" \
   -p "$WEAVER_LIVE_CHECK_PORT":4317 \
   -p "$WEAVER_LIVE_CHECK_ADMIN_PORT":8080 \
@@ -57,7 +57,7 @@ echo "[1/5] Starting Weaver live-check..."
 sleep 2
 
 echo "[2/5] Starting OTel Collector..."
-"$CONTAINER_CLI" rm -f "$OTEL_COLLECTOR_CONTAINER" 2>/dev/null || true
+"$CONTAINER_CLI" rm -f "$OTEL_COLLECTOR_CONTAINER" >/dev/null 2>&1 || true
 "$CONTAINER_CLI" run -d --name "$OTEL_COLLECTOR_CONTAINER" \
   -p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
   -v "$ROOT_DIR/$OTEL_COLLECTOR_CONFIG:/conf/otel-collector-config.yaml:ro" \
@@ -102,7 +102,7 @@ fi
 
 echo ""
 curl -s -X POST "http://localhost:$WEAVER_LIVE_CHECK_ADMIN_PORT/stop" 2>/dev/null || true
-sleep 2
+"$CONTAINER_CLI" wait "$WEAVER_LIVE_CHECK_CONTAINER" >/dev/null 2>&1 || true
 
 echo ""
 echo "=========================================="
