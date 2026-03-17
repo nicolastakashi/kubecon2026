@@ -103,30 +103,18 @@ INSTRUMENTATION_MODE=generated-otel make live-check
 
 ### Act 5: Show All Modes Passing
 
-**Talking Point:** "Here is the whole compatibility proof in one command."
+**Talking Point:** "Here is the compatibility proof across all three implementations."
 
 ```bash
-make live-check-all
+INSTRUMENTATION_MODE=manual-prom make live-check
+INSTRUMENTATION_MODE=generated-prom make live-check
+INSTRUMENTATION_MODE=generated-otel make live-check
 ```
 
 **Expected output:**
 ```text
-==========================================
-  Live-check mode: manual-prom
-==========================================
-...
-✓ No violations found - telemetry matches schema!
+Each run should end with:
 
-==========================================
-  Live-check mode: generated-prom
-==========================================
-...
-✓ No violations found - telemetry matches schema!
-
-==========================================
-  Live-check mode: generated-otel
-==========================================
-...
 ✓ No violations found - telemetry matches schema!
 ```
 
@@ -224,7 +212,7 @@ make schema-diff-report
 |--------|---------|
 | Infer schema | `make infer-schema` |
 | Validate one mode | `INSTRUMENTATION_MODE=<mode> make live-check` |
-| Validate all modes | `make live-check-all` |
+| Validate all modes | run `make live-check` once per mode |
 | Generate both SDKs | `make generate` |
 | Compare schemas | `make schema-diff` / `make schema-diff-report` |
 | Run all tests | `make test` |
