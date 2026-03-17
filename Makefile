@@ -104,7 +104,7 @@ metrics: ## Print metrics from a running local app.
 
 ##@ Test
 test: ## Run unit tests (excludes e2e).
-	go test -short $$(go list ./... | rg -v '/(test|tmp)/')
+	go test -short $$(go list ./... | grep -vE '/(test|tmp)(/|$$)')
 
 test-e2e: ## Run e2e tests (assumes app is running on :8080).
 	@cd $(E2E_TEST_DIR) && go test -count=1 -v . -timeout=120s
