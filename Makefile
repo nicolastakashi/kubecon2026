@@ -13,12 +13,13 @@ IMAGE_NAME ?= $(APP_NAME)
 IMAGE_TAG ?= latest
 
 E2E_TEST_DIR ?= test/e2e
+CONTAINER_HOST_GATEWAY_ARG ?= --add-host=host.docker.internal:host-gateway
 
 OTEL_COLLECTOR_IMAGE ?= otel/opentelemetry-collector-contrib:0.146.0
 OTEL_COLLECTOR_CONFIG ?= config/otel-collector-config-local.yaml
 OTEL_COLLECTOR_CONTAINER ?= otel-collector-local
 
-WEAVER_IMAGE ?= otel/weaver:main
+WEAVER_IMAGE ?= otel/weaver@sha256:2401de985c38bdb98b43918e2f43aa36b2afed4aa5669ac1c1de0a17301cd36d
 WEAVER_CONTAINER ?= weaver-infer
 WEAVER_INFER_PORT ?= 4319
 WEAVER_ADMIN_PORT ?= 4320
@@ -29,8 +30,11 @@ WEAVER_LIVE_CHECK_CONTAINER ?= weaver-live-check
 WEAVER_LIVE_CHECK_PORT ?= 4319
 WEAVER_LIVE_CHECK_ADMIN_PORT ?= 4321
 
+WEAVER_UI_CONTAINER ?= weaver-ui
+WEAVER_UI_PORT ?= 8081
+
 .PHONY: all build image clean \
-	run run-collector run-weaver-infer run-weaver-live-check metrics \
+	run run-collector run-weaver-infer run-weaver-live-check run-weaver-ui metrics \
 	test test-e2e schema-diff-report \
 	lint tidy \
 	infer-schema live-check generate generate-prom generate-otel schema-diff \
@@ -60,6 +64,7 @@ run-collector: ## Run the OTel collector (foreground).
 	@echo "Health:     http://localhost:13133"
 	@echo ""
 	$(CONTAINER_CLI) run --rm --name $(OTEL_COLLECTOR_CONTAINER) \
+		$(CONTAINER_HOST_GATEWAY_ARG) \
 		-p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
 		-v $(PWD)/$(OTEL_COLLECTOR_CONFIG):/conf/otel-collector-config.yaml:ro \
 		$(OTEL_COLLECTOR_IMAGE) --config=/conf/otel-collector-config.yaml
@@ -99,6 +104,22 @@ run-weaver-live-check: ## Run Weaver live-check (foreground).
 			--quiet \
 			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT)
 
+run-weaver-ui: ## Run Weaver UI to view registry (foreground).
+	@if [ ! -d "$(WEAVER_OUTPUT_DIR)" ]; then \
+		echo "Error: $(WEAVER_OUTPUT_DIR)/ not found."; \
+		echo "Run 'make infer-schema' first."; \
+		exit 1; \
+	fi
+	@$(CONTAINER_CLI) rm -f $(WEAVER_UI_CONTAINER) 2>/dev/null || true
+	@echo "Starting Weaver UI..."
+	@echo "Registry:  $(WEAVER_OUTPUT_DIR)/"
+	@echo "UI:       http://localhost:$(WEAVER_UI_PORT)"
+	@echo ""
+	$(CONTAINER_CLI) run --rm --name $(WEAVER_UI_CONTAINER) \
+		-p $(WEAVER_UI_PORT):8080 \
+		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
+		$(WEAVER_IMAGE) serve --registry /registry --bind 0.0.0.0:8080
+
 metrics: ## Print metrics from a running local app.
 	@curl -fsS http://localhost:8080/metrics
 
@@ -124,6 +145,7 @@ infer-schema: build ## Infer schema from app telemetry (runs full pipeline).
 	APP_BIN="$(APP_BIN)" \
 	INSTRUMENTATION_MODE="$(INSTRUMENTATION_MODE)" \
 	CONTAINER_CLI="$(CONTAINER_CLI)" \
+	CONTAINER_HOST_GATEWAY_ARG="$(CONTAINER_HOST_GATEWAY_ARG)" \
 	OTEL_COLLECTOR_IMAGE="$(OTEL_COLLECTOR_IMAGE)" \
 	OTEL_COLLECTOR_CONFIG="$(OTEL_COLLECTOR_CONFIG)" \
 	OTEL_COLLECTOR_CONTAINER="$(OTEL_COLLECTOR_CONTAINER)" \
@@ -146,6 +168,7 @@ live-check: build ## Validate app telemetry against schema (runs full pipeline).
 	APP_BIN="$(APP_BIN)" \
 	INSTRUMENTATION_MODE="$(INSTRUMENTATION_MODE)" \
 	CONTAINER_CLI="$(CONTAINER_CLI)" \
+	CONTAINER_HOST_GATEWAY_ARG="$(CONTAINER_HOST_GATEWAY_ARG)" \
 	OTEL_COLLECTOR_IMAGE="$(OTEL_COLLECTOR_IMAGE)" \
 	OTEL_COLLECTOR_CONFIG="$(OTEL_COLLECTOR_CONFIG)" \
 	OTEL_COLLECTOR_CONTAINER="$(OTEL_COLLECTOR_CONTAINER)" \
