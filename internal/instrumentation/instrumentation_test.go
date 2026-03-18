@@ -73,6 +73,10 @@ func TestProvidersExposeCompatibleMetrics(t *testing.T) {
 			}
 
 			metricsText := string(body)
+			if regexp.MustCompile(`(?m)^go_[^{\s]+`).MatchString(metricsText) {
+				t.Fatalf("metrics output unexpectedly contains default go runtime metrics\n%s", metricsText)
+			}
+
 			for _, pattern := range patterns {
 				if !pattern.MatchString(metricsText) {
 					t.Fatalf("metrics output missing pattern %q\n%s", pattern.String(), metricsText)

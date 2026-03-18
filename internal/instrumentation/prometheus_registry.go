@@ -27,9 +27,6 @@ func newPrometheusRegistry(extraCollectors ...prometheus.Collector) (*prometheus
 }
 
 func enrichPrometheusRegistry(registry *prometheus.Registry) (http.Handler, error) {
-	if err := registry.Register(collectors.NewGoCollector()); err != nil {
-		return nil, fmt.Errorf("register go collector: %w", err)
-	}
 	if err := registry.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
 		return nil, fmt.Errorf("register process collector: %w", err)
 	}
