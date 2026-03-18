@@ -57,16 +57,35 @@ jobs:
         continue-on-error: true
         id: contract_test
         run: |
-          set +e
-          OUTPUT=$(make live-check 2>&1)
-          EXIT_CODE=$?
-          echo "$OUTPUT"
+          set +e -o pipefail
+          OUTPUT_FILE=$(mktemp)
+          SUMMARY_FILE=$(mktemp)
+          LIVE_CHECK_SUMMARY_FILE="$SUMMARY_FILE" make live-check 2>&1 | tee "$OUTPUT_FILE"
+          EXIT_CODE=${PIPESTATUS[0]}
+          COMMENT_OUTPUT=$(cat "$SUMMARY_FILE")
+          if [ -z "$COMMENT_OUTPUT" ]; then
+            COMMENT_OUTPUT=$(awk '
+              { lines[NR] = $0 }
+              END {
+                start = NR - 39
+                if (start < 1) {
+                  start = 1
+                }
+                for (i = start; i <= NR; i++) {
+                  print lines[i]
+                }
+              }
+            ' "$OUTPUT_FILE")
+          fi
+          DELIM="CONTRACT_TEST_$(date +%s)_$$"
           {
-            echo 'output<<EOF'
-            echo "$OUTPUT"
-            echo 'EOF'
+            echo "output<<$DELIM"
+            printf '%s\n' "$COMMENT_OUTPUT"
+            echo "$DELIM"
             echo "exit_code=$EXIT_CODE"
           } >> "$GITHUB_OUTPUT"
+          rm -f "$OUTPUT_FILE"
+          rm -f "$SUMMARY_FILE"
           exit 0
 
       - name: Comment on PR when contract test fails
