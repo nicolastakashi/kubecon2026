@@ -18,10 +18,13 @@ WEAVER_OUTPUT_DIR=${WEAVER_OUTPUT_DIR:?WEAVER_OUTPUT_DIR is required}
 E2E_TEST_DIR=${E2E_TEST_DIR:?E2E_TEST_DIR is required}
 
 APP_PID=""
+RAW_LOGS=""
+JSON_LOGS=""
 
 cleanup() {
   if [[ -n "$APP_PID" ]]; then
     kill "$APP_PID" 2>/dev/null || true
+    wait "$APP_PID" 2>/dev/null || true
   fi
   "$CONTAINER_CLI" rm -f "$WEAVER_CONTAINER" >/dev/null 2>&1 || true
   "$CONTAINER_CLI" rm -f "$WEAVER_LIVE_CHECK_CONTAINER" >/dev/null 2>&1 || true
@@ -52,6 +55,7 @@ echo "[1/5] Starting Weaver live-check..."
   "$WEAVER_IMAGE" registry live-check \
   --registry /registry \
   --format json \
+  --quiet \
   --inactivity-timeout "$WEAVER_INACTIVITY_TIMEOUT" >/dev/null
 
 sleep 2
@@ -77,7 +81,15 @@ echo ""
 echo ""
 
 echo "[5/5] Waiting for metrics to be validated..."
-sleep 15
+
+for ((i = 0; i < WEAVER_INACTIVITY_TIMEOUT; i++)); do
+  RAW_LOGS=$("$CONTAINER_CLI" logs "$WEAVER_LIVE_CHECK_CONTAINER" 2>&1 || true)
+  JSON_LOGS=$(printf '%s\n' "$RAW_LOGS" | sed -n '/^{/,$p')
+  if [[ -n "$JSON_LOGS" ]]; then
+    break
+  fi
+  sleep 1
+done
 
 echo ""
 echo "=========================================="
@@ -85,24 +97,44 @@ echo "  Live-Check Results"
 echo "=========================================="
 echo ""
 
-VIOLATIONS=$("$CONTAINER_CLI" logs "$WEAVER_LIVE_CHECK_CONTAINER" 2>&1 | \
-  sed -n '/^{/,$p' | \
-  jq -s '[.[] | select(.metric.live_check_result.all_advice[]?.advice_level == "violation") | {name: .metric.name, message: .metric.live_check_result.all_advice[] | select(.advice_level == "violation") | .message}] | unique | [.[] | select(.name | test("^(go_gc_duration|process_|scrape_)") | not)]' 2>/dev/null || echo "[]")
-VIOLATION_COUNT=$(echo "$VIOLATIONS" | jq 'length')
-
-if [[ "$VIOLATION_COUNT" == "0" ]]; then
-  echo "✓ No violations found - telemetry matches schema!"
-  EXIT_CODE=0
-else
-  echo "✗ Found $VIOLATION_COUNT violation(s):"
+if [[ -z "$JSON_LOGS" ]]; then
+  echo "✗ Weaver live-check did not emit parseable JSON output."
   echo ""
-  echo "$VIOLATIONS" | jq -r '.[] | "  - \(.name): \(.message)"'
+  printf '%s\n' "$RAW_LOGS"
   EXIT_CODE=1
+else
+  ADVICE=$(printf '%s\n' "$JSON_LOGS" | jq -s '
+    [
+      .[]
+      | .metric as $metric
+      | $metric.live_check_result.all_advice[]?
+      | select(.advice_level != "info")
+      | {
+          level: .advice_level,
+          name: $metric.name,
+          message: .message
+        }
+    ]
+    | unique
+    | map(select(.name | test("^(go_gc_duration|process_|scrape_|up$)") | not))
+    | map(select(.message | contains("is not stable; stability = development.") | not))
+  ')
+  ADVICE_COUNT=$(printf '%s\n' "$ADVICE" | jq 'length')
+
+  if [[ "$ADVICE_COUNT" == "0" ]]; then
+    echo "✓ No violations found - telemetry matches schema!"
+    EXIT_CODE=0
+  else
+    echo "✗ Found $ADVICE_COUNT contract issue(s):"
+    echo ""
+    printf '%s\n' "$ADVICE" | jq -r '.[] | "  - [\(.level)] \(.name): \(.message)"'
+    EXIT_CODE=1
+  fi
 fi
 
 echo ""
 curl -s -X POST "http://localhost:$WEAVER_LIVE_CHECK_ADMIN_PORT/stop" 2>/dev/null || true
-"$CONTAINER_CLI" wait "$WEAVER_LIVE_CHECK_CONTAINER" >/dev/null 2>&1 || true
+"$CONTAINER_CLI" rm -f "$WEAVER_LIVE_CHECK_CONTAINER" >/dev/null 2>&1 || true
 
 echo ""
 echo "=========================================="
