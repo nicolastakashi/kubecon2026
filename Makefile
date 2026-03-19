@@ -6,7 +6,8 @@ BUILD_DIR ?= bin
 APP_BIN := $(BUILD_DIR)/$(APP_NAME)
 MAIN_FILE ?= cmd/packetsorter/main.go
 DB_FILE ?= parcels.db
-INSTRUMENTATION_MODE ?= manual-prom
+## manual-prom OR generated-prom OR generated-otel
+INSTRUMENTATION_MODE ?= generated-otel
 
 CONTAINER_CLI ?= docker
 IMAGE_NAME ?= $(APP_NAME)
@@ -19,7 +20,7 @@ OTEL_COLLECTOR_IMAGE ?= otel/opentelemetry-collector-contrib:0.146.0
 OTEL_COLLECTOR_CONFIG ?= config/otel-collector-config-local.yaml
 OTEL_COLLECTOR_CONTAINER ?= otel-collector-local
 
-WEAVER_IMAGE ?= otel/weaver@sha256:2401de985c38bdb98b43918e2f43aa36b2afed4aa5669ac1c1de0a17301cd36d
+WEAVER_IMAGE ?= otel/weaver:main
 WEAVER_CONTAINER ?= weaver-infer
 WEAVER_INFER_PORT ?= 4319
 WEAVER_ADMIN_PORT ?= 4320
