@@ -7,7 +7,7 @@ APP_BIN := $(BUILD_DIR)/$(APP_NAME)
 MAIN_FILE ?= cmd/packetsorter/main.go
 DB_FILE ?= parcels.db
 ## manual-prom OR generated-prom OR generated-otel
-INSTRUMENTATION_MODE ?= generated-otel
+INSTRUMENTATION_MODE ?= manual-prom
 
 CONTAINER_CLI ?= docker
 IMAGE_NAME ?= $(APP_NAME)
