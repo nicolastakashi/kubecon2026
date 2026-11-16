@@ -9,29 +9,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// registry follows the Weaver `definition/2` file format.
 type registry struct {
-	Groups []group `yaml:"groups"`
-}
-
-type group struct {
-	ID         string      `yaml:"id"`
-	Type       string      `yaml:"type"`
-	Brief      string      `yaml:"brief,omitempty"`
-	Stability  string      `yaml:"stability,omitempty"`
 	Attributes []attribute `yaml:"attributes,omitempty"`
-	MetricName string      `yaml:"metric_name,omitempty"`
-	Instrument string      `yaml:"instrument,omitempty"`
-	Unit       string      `yaml:"unit,omitempty"`
+	Metrics    []metric    `yaml:"metrics"`
 }
 
 type attribute struct {
-	ID               string      `yaml:"id"`
-	Type             string      `yaml:"type,omitempty"`
-	Brief            string      `yaml:"brief,omitempty"`
-	Examples         interface{} `yaml:"examples,omitempty"`
-	RequirementLevel string      `yaml:"requirement_level,omitempty"`
-	Note             string      `yaml:"note,omitempty"`
-	Stability        string      `yaml:"stability,omitempty"`
+	Key       string      `yaml:"key"`
+	Type      string      `yaml:"type,omitempty"`
+	Brief     string      `yaml:"brief,omitempty"`
+	Examples  interface{} `yaml:"examples,omitempty"`
+	Note      string      `yaml:"note,omitempty"`
+	Stability string      `yaml:"stability,omitempty"`
+}
+
+type metric struct {
+	Name       string         `yaml:"name"`
+	Instrument string         `yaml:"instrument,omitempty"`
+	Unit       string         `yaml:"unit,omitempty"`
+	Attributes []attributeRef `yaml:"attributes,omitempty"`
+	Brief      string         `yaml:"brief,omitempty"`
+	Stability  string         `yaml:"stability,omitempty"`
+}
+
+type attributeRef struct {
+	Ref string `yaml:"ref"`
 }
 
 func main() {
@@ -52,26 +55,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	filtered := make([]group, 0, len(doc.Groups))
-	for _, g := range doc.Groups {
-		if g.Type != "metric" {
-			continue
-		}
-		if isRuntimeMetric(g.MetricName) {
-			continue
-		}
-
-		slices.SortFunc(g.Attributes, func(a, b attribute) int {
-			return strings.Compare(a.ID, b.ID)
-		})
-		filtered = append(filtered, g)
-	}
-
-	slices.SortFunc(filtered, func(a, b group) int {
-		return strings.Compare(a.ID, b.ID)
-	})
-
-	out, err := yaml.Marshal(registry{Groups: filtered})
+	out, err := yaml.Marshal(normalize(doc))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "marshal registry: %v\n", err)
 		os.Exit(1)
@@ -81,6 +65,39 @@ func main() {
 		fmt.Fprintf(os.Stderr, "write registry: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// normalize keeps application metrics and the attributes they reference, sorted, so diffs are stable.
+func normalize(doc registry) registry {
+	referenced := map[string]bool{}
+	metrics := make([]metric, 0, len(doc.Metrics))
+	for _, m := range doc.Metrics {
+		if isRuntimeMetric(m.Name) {
+			continue
+		}
+		slices.SortFunc(m.Attributes, func(a, b attributeRef) int {
+			return strings.Compare(a.Ref, b.Ref)
+		})
+		for _, ref := range m.Attributes {
+			referenced[ref.Ref] = true
+		}
+		metrics = append(metrics, m)
+	}
+	slices.SortFunc(metrics, func(a, b metric) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	attributes := make([]attribute, 0, len(doc.Attributes))
+	for _, a := range doc.Attributes {
+		if referenced[a.Key] {
+			attributes = append(attributes, a)
+		}
+	}
+	slices.SortFunc(attributes, func(a, b attribute) int {
+		return strings.Compare(a.Key, b.Key)
+	})
+
+	return registry{Attributes: attributes, Metrics: metrics}
 }
 
 func isRuntimeMetric(name string) bool {
