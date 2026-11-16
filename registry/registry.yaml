@@ -1,316 +1,204 @@
-groups:
-  - id: resource
-    type: entity
-    brief: ""
-    stability: development
-    attributes:
-      - id: server.address
-        type: string
-        brief: ""
-        examples: host.docker.internal
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-      - id: server.port
-        type: string
-        brief: ""
-        examples: "8080"
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-      - id: service.instance.id
-        type: string
-        brief: ""
-        examples: host.docker.internal:8080
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-      - id: service.name
-        type: string
-        brief: ""
-        examples: packetsorter
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-      - id: url.scheme
-        type: string
-        brief: ""
-        examples: http
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-  - id: metric.process_virtual_memory_bytes
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: process_virtual_memory_bytes
-    instrument: gauge
-    unit: ""
-  - id: metric.scrape_series_added
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: scrape_series_added
-    instrument: gauge
-    unit: ""
-  - id: metric.process_open_fds
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: process_open_fds
-    instrument: gauge
-    unit: ""
-  - id: metric.http_requests_total
-    type: metric
-    brief: ""
-    stability: development
-    attributes:
-      - id: endpoint
-        type: string
-        brief: ""
-        examples:
-          - /api/parcels
-          - /api/parcels/{id}
-          - /api/parcels/{id}/process
-          - /api/parcels/{id}/ship
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-      - id: method
-        type: string
-        brief: ""
-        examples:
-          - GET
-          - POST
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-      - id: status
-        type: string
-        brief: ""
-        examples:
-          - "200"
-          - "201"
-          - "404"
-          - "400"
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-    metric_name: http_requests_total
-    instrument: counter
-    unit: ""
-  - id: metric.parcels_backlog
-    type: metric
-    brief: ""
-    stability: development
-    attributes:
-      - id: stage
-        type: string
-        brief: ""
-        examples:
-          - ingested
-          - ready_to_ship
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-    metric_name: parcels_backlog
-    instrument: gauge
-    unit: ""
-  - id: metric.parcels_total
-    type: metric
-    brief: ""
-    stability: development
-    attributes:
-      - id: outcome
-        type: string
-        brief: ""
-        examples:
-          - drop
-          - ok
-          - rework
-          - success
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-      - id: stage
-        type: string
-        brief: ""
-        examples:
-          - process
-          - ingest
-          - ship
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-    metric_name: parcels_total
-    instrument: counter
-    unit: ""
-  - id: metric.http_request_duration_milliseconds
-    type: metric
-    brief: ""
-    stability: development
-    attributes:
-      - id: endpoint
-        type: string
-        brief: ""
-        examples:
-          - /api/parcels
-          - /api/parcels/{id}
-          - /api/parcels/{id}/process
-          - /api/parcels/{id}/ship
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-      - id: method
-        type: string
-        brief: ""
-        examples:
-          - GET
-          - POST
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-    metric_name: http_request_duration_milliseconds
-    instrument: histogram
-    unit: ""
-  - id: metric.rework_reason_total
-    type: metric
-    brief: ""
-    stability: development
-    attributes:
-      - id: reason
-        type: string
-        brief: ""
-        examples:
-          - damaged
-          - inspection
-          - weight_issue
-          - wrong_address
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-    metric_name: rework_reason_total
-    instrument: counter
-    unit: ""
-  - id: metric.process_virtual_memory_max_bytes
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: process_virtual_memory_max_bytes
-    instrument: gauge
-    unit: ""
-  - id: metric.stage_duration_seconds
-    type: metric
-    brief: ""
-    stability: development
-    attributes:
-      - id: stage
-        type: string
-        brief: ""
-        examples:
-          - ingest
-          - process
-          - ship
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-    metric_name: stage_duration_seconds
-    instrument: histogram
-    unit: ""
-  - id: metric.scrape_samples_post_metric_relabeling
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: scrape_samples_post_metric_relabeling
-    instrument: gauge
-    unit: ""
-  - id: metric.process_resident_memory_bytes
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: process_resident_memory_bytes
-    instrument: gauge
-    unit: ""
-  - id: metric.scrape_samples_scraped
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: scrape_samples_scraped
-    instrument: gauge
-    unit: ""
-  - id: metric.process_start_time_seconds
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: process_start_time_seconds
-    instrument: gauge
-    unit: ""
-  - id: metric.promhttp_metric_handler_requests_in_flight
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: promhttp_metric_handler_requests_in_flight
-    instrument: gauge
-    unit: ""
-  - id: metric.process_max_fds
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: process_max_fds
-    instrument: gauge
-    unit: ""
-  - id: metric.promhttp_metric_handler_requests_total
-    type: metric
-    brief: ""
-    stability: development
-    attributes:
-      - id: code
-        type: string
-        brief: ""
-        examples:
-          - "200"
-          - "500"
-          - "503"
-        requirement_level: recommended
-        note: ""
-        stability: development
-        annotations: null
-    metric_name: promhttp_metric_handler_requests_total
-    instrument: counter
-    unit: ""
-  - id: metric.up
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: up
-    instrument: gauge
-    unit: ""
-  - id: metric.scrape_duration_seconds
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: scrape_duration_seconds
-    instrument: gauge
-    unit: s
-  - id: metric.process_cpu_seconds_total
-    type: metric
-    brief: ""
-    stability: development
-    metric_name: process_cpu_seconds_total
-    instrument: counter
-    unit: ""
+file_format: definition/2
+attributes:
+- key: code
+  type: string
+  examples:
+  - '200'
+  - '500'
+  - '503'
+  brief: ''
+  stability: development
+- key: endpoint
+  type: string
+  examples:
+  - /api/parcels
+  - /api/parcels/{id}
+  - /api/parcels/{id}/process
+  - /api/parcels/{id}/ship
+  brief: ''
+  stability: development
+- key: method
+  type: string
+  examples:
+  - GET
+  - POST
+  brief: ''
+  stability: development
+- key: outcome
+  type: string
+  examples:
+  - drop
+  - ok
+  - rework
+  - success
+  brief: ''
+  stability: development
+- key: reason
+  type: string
+  examples:
+  - damaged
+  - inspection
+  - weight_issue
+  - wrong_address
+  brief: ''
+  stability: development
+- key: server.address
+  type: string
+  examples: host.docker.internal
+  brief: ''
+  stability: development
+- key: server.port
+  type: string
+  examples: '8080'
+  brief: ''
+  stability: development
+- key: service.instance.id
+  type: string
+  examples: host.docker.internal:8080
+  brief: ''
+  stability: development
+- key: service.name
+  type: string
+  examples: packetsorter
+  brief: ''
+  stability: development
+- key: stage
+  type: string
+  examples:
+  - ingested
+  - ready_to_ship
+  brief: ''
+  stability: development
+- key: status
+  type: string
+  examples:
+  - '200'
+  - '201'
+  - '404'
+  - '400'
+  brief: ''
+  stability: development
+- key: url.scheme
+  type: string
+  examples: http
+  brief: ''
+  stability: development
+metrics:
+- name: http_request_duration_seconds
+  instrument: histogram
+  unit: ''
+  attributes:
+  - ref: endpoint
+  - ref: method
+  brief: ''
+  stability: development
+- name: http_requests_total
+  instrument: counter
+  unit: ''
+  attributes:
+  - ref: endpoint
+  - ref: method
+  - ref: status
+  brief: ''
+  stability: development
+- name: parcels_backlog
+  instrument: gauge
+  unit: ''
+  attributes:
+  - ref: stage
+  brief: ''
+  stability: development
+- name: parcels_total
+  instrument: counter
+  unit: ''
+  attributes:
+  - ref: outcome
+  - ref: stage
+  brief: ''
+  stability: development
+- name: process_cpu_seconds_total
+  instrument: counter
+  unit: ''
+  brief: ''
+  stability: development
+- name: process_max_fds
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: process_open_fds
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: process_resident_memory_bytes
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: process_start_time_seconds
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: process_virtual_memory_bytes
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: process_virtual_memory_max_bytes
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: promhttp_metric_handler_requests_in_flight
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: promhttp_metric_handler_requests_total
+  instrument: counter
+  unit: ''
+  attributes:
+  - ref: code
+  brief: ''
+  stability: development
+- name: rework_reason_total
+  instrument: counter
+  unit: ''
+  attributes:
+  - ref: reason
+  brief: ''
+  stability: development
+- name: scrape_duration_seconds
+  instrument: gauge
+  unit: s
+  brief: ''
+  stability: development
+- name: scrape_samples_post_metric_relabeling
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: scrape_samples_scraped
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: scrape_series_added
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
+- name: stage_duration_seconds
+  instrument: histogram
+  unit: ''
+  attributes:
+  - ref: stage
+  brief: ''
+  stability: development
+- name: up
+  instrument: gauge
+  unit: ''
+  brief: ''
+  stability: development
