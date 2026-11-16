@@ -47,6 +47,7 @@ echo "[1/5] Starting Weaver infer..."
   -p "$WEAVER_ADMIN_PORT":8080 \
   -v "$ROOT_DIR/$WEAVER_OUTPUT_DIR:/output" \
   "$WEAVER_IMAGE" registry infer \
+  --otlp-grpc-address 0.0.0.0 \
   --output /output \
   --inactivity-timeout "$WEAVER_INACTIVITY_TIMEOUT" >/dev/null
 
@@ -60,7 +61,7 @@ if [[ -n "$CONTAINER_HOST_GATEWAY_ARG" ]]; then
 fi
 "$CONTAINER_CLI" run -d --name "$OTEL_COLLECTOR_CONTAINER" \
   "${OTEL_COLLECTOR_RUN_ARGS[@]}" \
-  -p 4317:4317 -p 4318:4318 -p 8888:8888 -p 13133:13133 \
+  -p 8888:8888 -p 13133:13133 \
   -v "$ROOT_DIR/$OTEL_COLLECTOR_CONFIG:/conf/otel-collector-config.yaml:ro" \
   "$OTEL_COLLECTOR_IMAGE" --config=/conf/otel-collector-config.yaml >/dev/null
 

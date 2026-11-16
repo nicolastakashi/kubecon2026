@@ -20,7 +20,7 @@ OTEL_COLLECTOR_IMAGE ?= otel/opentelemetry-collector-contrib:0.146.0
 OTEL_COLLECTOR_CONFIG ?= config/otel-collector-config-local.yaml
 OTEL_COLLECTOR_CONTAINER ?= otel-collector-local
 
-WEAVER_IMAGE ?= otel/weaver:main
+WEAVER_IMAGE ?= otel/weaver:v0.28.0
 WEAVER_CONTAINER ?= weaver-infer
 WEAVER_INFER_PORT ?= 4319
 WEAVER_ADMIN_PORT ?= 4320
@@ -82,6 +82,7 @@ run-weaver-infer: ## Run Weaver infer (foreground).
 		-p $(WEAVER_ADMIN_PORT):8080 \
 		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/output \
 		$(WEAVER_IMAGE) registry infer \
+			--otlp-grpc-address 0.0.0.0 \
 			--output /output \
 			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT)
 
@@ -101,6 +102,7 @@ run-weaver-live-check: ## Run Weaver live-check (foreground).
 		-p $(WEAVER_LIVE_CHECK_ADMIN_PORT):8080 \
 		-v $(PWD)/$(WEAVER_OUTPUT_DIR):/registry:ro \
 		$(WEAVER_IMAGE) registry live-check \
+			--otlp-grpc-address 0.0.0.0 \
 			--registry /registry \
 			--quiet \
 			--inactivity-timeout $(WEAVER_INACTIVITY_TIMEOUT)
@@ -188,6 +190,7 @@ GENERATE_PROM_OUTPUT_DIR ?= $(GENERATE_BASE_DIR)/prom
 GENERATE_OTEL_OUTPUT_DIR ?= $(GENERATE_BASE_DIR)/otel
 
 generate: generate-prom generate-otel ## Generate Prometheus and OTel SDKs from registry.
+	@gofmt -w $(GENERATE_PROM_OUTPUT_DIR) $(GENERATE_OTEL_OUTPUT_DIR)
 	@echo ""
 	@echo "=========================================="
 	@echo "  Generated SDKs:"
