@@ -62,7 +62,7 @@ func NewBundle() (*Bundle, error) {
 		),
 		HTTPRequestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "http_request_duration_seconds",
+				Name:    "http_request_duration_milliseconds",
 				Help:    "HTTP request duration by endpoint",
 				Buckets: prometheus.DefBuckets,
 			},
